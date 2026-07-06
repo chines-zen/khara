@@ -9,16 +9,22 @@ export function buildOpportunitiesQuery(filters = {}) {
 SELECT
     -- Core fields from DIM
     dim.CRM_OPPORTUNITY_ID AS id,
-    dim.OPPORTUNITY_NAME AS name,
+    -- dim.OPPORTUNITY_NAME is masked (always NULL) — use the unmasked staging name instead
+    stg.NAME AS name,
     acc.NAME AS account,
     dim.OPPORTUNITY_STAGE_NAME AS stage,
     dim.OPPORTUNITY_TYPE AS type,
-    dim.OPPORTUNITY_TERRITORY_NAME AS territory,
+    -- dim.OPPORTUNITY_TERRITORY_NAME is always empty at the source — resolve territory via the
+    -- account's assigned territory ID against the sales roster instead (verified against live data)
+    roster.TERRITORY_NAME AS territory,
     dim.CALENDAR_CLOSEDATE AS close_date,
     dim.OPPORTUNITY_CREATED_DATE AS created_date,
 
-    -- Owner from funnel metrics (may be NULL if not in that table)
-    funnel.OPP_OWNER_NAME AS owner,
+    -- Owner: CURATED_OPPORTUNITIES_HISTORY.OWNER_ACTUAL_NAME__C_OPPT is the most reliable source
+    -- (confirmed against known-good cases); fall back to funnel metrics when an opp isn't in that
+    -- table. SA_ACTIVITY_DAILY_SNAPSHOT was tested and dropped — lowest coverage (3%) and, when it
+    -- disagreed with funnel, it matched the curated table only 0.7% of the time (verified against live data)
+    COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME) AS owner,
 
     -- Notes from staging (not in DIM)
     stg.RED_FLAGS_C AS sc_notes,
@@ -26,8 +32,9 @@ SELECT
     stg.MANAGER_NOTES_C AS manager_notes,
     stg.PRODUCT_SPECIALIST_NOTES_C AS product_specialist_notes,
 
-    -- SC Manager Notes from DIM
-    dim.OPPORTUNITY_SC_MANAGER_NOTES AS sc_manager_notes,
+    -- SC Manager Notes: dim.OPPORTUNITY_SC_MANAGER_NOTES is always empty at the source —
+    -- the populated column is SC_MANAGER_NOTES_C on the SFDC fields snapshot (verified against live data)
+    sfdc_fields.SC_MANAGER_NOTES_C AS sc_manager_notes,
 
     -- SC info
     dim.OPPORTUNITY_SERVICES_ENGAGED AS sc_engagement_type,
@@ -50,6 +57,8 @@ SELECT
 FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT dim
 
 -- Join staging for fields not in DIM (needed first for ACCOUNT_ID)
+-- Verified in FOUNDATIONAL.CUSTOMER_STAGING.STG_SALESFORCE_OPPORTUNITY_SCD2: the "current row"
+-- sentinel here is VALID_TO_TIMESTAMP = '9999-12-31', not NULL (confirmed against live data)
 LEFT JOIN FOUNDATIONAL.CUSTOMER_STAGING.STG_SALESFORCE_OPPORTUNITY_SCD2 stg
     ON dim.CRM_OPPORTUNITY_ID = stg.ID
     AND stg.VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
@@ -70,7 +79,18 @@ LEFT JOIN (
 ) sc_user
     ON stg.NAME_OF_SC_C = sc_user.USER_ID
 
--- Join for owner name from funnel metrics
+-- Join for owner name from curated opportunity history (primary owner source)
+LEFT JOIN (
+    SELECT
+        CRM_OPPORTUNITY_ID,
+        OWNER_ACTUAL_NAME__C_OPPT
+    FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY
+    WHERE SOURCE_SNAPSHOT_DATE = (SELECT MAX(SOURCE_SNAPSHOT_DATE) FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY)
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY CRM_OPPORTUNITY_ID ORDER BY CRM_OPPORTUNITY_ID) = 1
+) curated
+    ON dim.CRM_OPPORTUNITY_ID = curated.CRM_OPPORTUNITY_ID
+
+-- Join for owner name from funnel metrics (fallback for opps not in curated history)
 LEFT JOIN (
     SELECT
         OPPORTUNITY_ID,
@@ -94,6 +114,27 @@ LEFT JOIN (
 ) arr
     ON dim.CRM_OPPORTUNITY_ID = arr.crm_opportunity_id
 
+-- Join for SC Manager Notes (daily snapshot; dedupe to most recent SOURCE_SNAPSHOT_DATE)
+LEFT JOIN (
+    SELECT
+        ID,
+        SC_MANAGER_NOTES_C
+    FROM FUNCTIONAL.GTM_SALES_OPS.DIM_CRM_OPPORTUNITIES_SFDC_FIELDS_DAILY_SNAPSHOT
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) = 1
+) sfdc_fields
+    ON dim.CRM_OPPORTUNITY_ID = sfdc_fields.ID
+
+-- Join for territory name via the account's assigned territory (dedupe roster to one row per territory)
+LEFT JOIN (
+    SELECT
+        TERRITORY_ID,
+        TERRITORY_NAME
+    FROM FUNCTIONAL.GTM_SALES_OPS.ROSTER
+    WHERE TERRITORY_NAME IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY TERRITORY_ID ORDER BY TERRITORY_ID) = 1
+) roster
+    ON acc.ASSIGNED_TERRITORY_ID_C = roster.TERRITORY_ID
+
 WHERE dim.RUN_DATE = (
     SELECT MAX(RUN_DATE)
     FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
@@ -113,9 +154,9 @@ WHERE dim.RUN_DATE = (
   if (search && search.trim()) {
     const searchTerm = search.trim().replace(/'/g, "''"); // Escape single quotes
     conditions.push(`(
-      LOWER(dim.OPPORTUNITY_NAME) LIKE LOWER('%${searchTerm}%')
+      LOWER(stg.NAME) LIKE LOWER('%${searchTerm}%')
       OR LOWER(acc.NAME) LIKE LOWER('%${searchTerm}%')
-      OR LOWER(funnel.OPP_OWNER_NAME) LIKE LOWER('%${searchTerm}%')
+      OR LOWER(COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME)) LIKE LOWER('%${searchTerm}%')
     )`);
   }
 
@@ -128,7 +169,7 @@ WHERE dim.RUN_DATE = (
   // Owner filter
   if (owner) {
     const ownerEscaped = owner.replace(/'/g, "''");
-    conditions.push(`funnel.OPP_OWNER_NAME = '${ownerEscaped}'`);
+    conditions.push(`COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME) = '${ownerEscaped}'`);
   }
 
   // Close month filter
@@ -152,7 +193,7 @@ WHERE dim.RUN_DATE = (
     sql += `\n  AND ${conditions.join('\n  AND ')}`;
   }
 
-  sql += `\nORDER BY dim.OPPORTUNITY_NAME`;
+  sql += `\nORDER BY stg.NAME`;
 
   return sql;
 }
@@ -163,10 +204,19 @@ WHERE dim.RUN_DATE = (
 export function buildOwnersQuery() {
   return `
 SELECT DISTINCT
+    OWNER_ACTUAL_NAME__C_OPPT AS owner
+FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY
+WHERE OWNER_ACTUAL_NAME__C_OPPT IS NOT NULL
+  AND SOURCE_SNAPSHOT_DATE = (SELECT MAX(SOURCE_SNAPSHOT_DATE) FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY)
+
+UNION
+
+SELECT DISTINCT
     funnel.OPP_OWNER_NAME AS owner
 FROM FUNCTIONAL.MARKETING_ANALYTICS.OPP_CM_FUNNEL_METRIC_DAILY_SNAPSHOT funnel
 WHERE funnel.OPP_OWNER_NAME IS NOT NULL
-ORDER BY funnel.OPP_OWNER_NAME
+
+ORDER BY owner
 `;
 }
 
@@ -192,9 +242,18 @@ export function buildStatsQuery() {
 SELECT
     COUNT(*) AS total_opportunities,
     COUNT(DISTINCT dim.OPPORTUNITY_STAGE_NAME) AS total_stages,
-    COUNT(DISTINCT funnel.OPP_OWNER_NAME) AS total_owners,
+    COUNT(DISTINCT COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME)) AS total_owners,
     SUM(arr.product_arr_usd) AS total_pipeline_value
 FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT dim
+LEFT JOIN (
+    SELECT
+        CRM_OPPORTUNITY_ID,
+        OWNER_ACTUAL_NAME__C_OPPT
+    FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY
+    WHERE SOURCE_SNAPSHOT_DATE = (SELECT MAX(SOURCE_SNAPSHOT_DATE) FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY)
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY CRM_OPPORTUNITY_ID ORDER BY CRM_OPPORTUNITY_ID) = 1
+) curated
+    ON dim.CRM_OPPORTUNITY_ID = curated.CRM_OPPORTUNITY_ID
 LEFT JOIN (
     SELECT
         OPPORTUNITY_ID,
@@ -206,10 +265,11 @@ LEFT JOIN (
 LEFT JOIN (
     SELECT
         crm_opportunity_id,
-        SUM(product_arr_usd) AS product_arr_usd
+        SUM(product_arr_usd) AS product_arr_usd,
+        source_snapshot_date
     FROM PRESENTATION.ENTERPRISE_METRICS.OPPORTUNITY_LEVEL_PIPELINE_BOOKING
     WHERE is_total_booking = 1
-    GROUP BY crm_opportunity_id
+    GROUP BY crm_opportunity_id, source_snapshot_date
     QUALIFY ROW_NUMBER() OVER (PARTITION BY crm_opportunity_id ORDER BY source_snapshot_date DESC) = 1
 ) arr
     ON dim.CRM_OPPORTUNITY_ID = arr.crm_opportunity_id
@@ -228,16 +288,20 @@ export function buildScOpportunitiesQuery(snowflakeUserId) {
 SELECT
     -- Core fields from DIM
     dim.CRM_OPPORTUNITY_ID AS id,
-    dim.OPPORTUNITY_NAME AS name,
+    -- dim.OPPORTUNITY_NAME is masked (always NULL) — use the unmasked staging name instead
+    stg.NAME AS name,
     acc.NAME AS account,
     dim.OPPORTUNITY_STAGE_NAME AS stage,
     dim.OPPORTUNITY_TYPE AS type,
-    dim.OPPORTUNITY_TERRITORY_NAME AS territory,
+    -- dim.OPPORTUNITY_TERRITORY_NAME is always empty at the source — resolve territory via the
+    -- account's assigned territory ID against the sales roster instead (verified against live data)
+    roster.TERRITORY_NAME AS territory,
     dim.CALENDAR_CLOSEDATE AS close_date,
     dim.OPPORTUNITY_CREATED_DATE AS created_date,
 
-    -- Owner from funnel metrics
-    funnel.OPP_OWNER_NAME AS owner,
+    -- Owner: CURATED_OPPORTUNITIES_HISTORY.OWNER_ACTUAL_NAME__C_OPPT is the most reliable source
+    -- (confirmed against known-good cases); fall back to funnel metrics when an opp isn't in that table
+    COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME) AS owner,
 
     -- Notes from staging
     stg.RED_FLAGS_C AS sc_notes,
@@ -245,8 +309,9 @@ SELECT
     stg.MANAGER_NOTES_C AS manager_notes,
     stg.PRODUCT_SPECIALIST_NOTES_C AS product_specialist_notes,
 
-    -- SC Manager Notes from DIM
-    dim.OPPORTUNITY_SC_MANAGER_NOTES AS sc_manager_notes,
+    -- SC Manager Notes: dim.OPPORTUNITY_SC_MANAGER_NOTES is always empty at the source —
+    -- the populated column is SC_MANAGER_NOTES_C on the SFDC fields snapshot (verified against live data)
+    sfdc_fields.SC_MANAGER_NOTES_C AS sc_manager_notes,
 
     -- SC info
     dim.OPPORTUNITY_SERVICES_ENGAGED AS sc_engagement_type,
@@ -269,6 +334,7 @@ SELECT
 FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT dim
 
 -- Join staging for SC field
+-- Verified against live data: the "current row" sentinel is VALID_TO_TIMESTAMP = '9999-12-31', not NULL
 LEFT JOIN FOUNDATIONAL.CUSTOMER_STAGING.STG_SALESFORCE_OPPORTUNITY_SCD2 stg
     ON dim.CRM_OPPORTUNITY_ID = stg.ID
     AND stg.VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
@@ -286,7 +352,18 @@ LEFT JOIN (
 ) sc_user
     ON stg.NAME_OF_SC_C = sc_user.USER_ID
 
--- Join for owner name
+-- Join for owner name from curated opportunity history (primary owner source)
+LEFT JOIN (
+    SELECT
+        CRM_OPPORTUNITY_ID,
+        OWNER_ACTUAL_NAME__C_OPPT
+    FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY
+    WHERE SOURCE_SNAPSHOT_DATE = (SELECT MAX(SOURCE_SNAPSHOT_DATE) FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY)
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY CRM_OPPORTUNITY_ID ORDER BY CRM_OPPORTUNITY_ID) = 1
+) curated
+    ON dim.CRM_OPPORTUNITY_ID = curated.CRM_OPPORTUNITY_ID
+
+-- Join for owner name from funnel metrics (fallback for opps not in curated history)
 LEFT JOIN (
     SELECT OPPORTUNITY_ID, OPP_OWNER_NAME, SNAPSHOT_DATE
     FROM FUNCTIONAL.MARKETING_ANALYTICS.OPP_CM_FUNNEL_METRIC_DAILY_SNAPSHOT
@@ -307,6 +384,27 @@ LEFT JOIN (
 ) arr
     ON dim.CRM_OPPORTUNITY_ID = arr.crm_opportunity_id
 
+-- Join for SC Manager Notes (daily snapshot; dedupe to most recent SOURCE_SNAPSHOT_DATE)
+LEFT JOIN (
+    SELECT
+        ID,
+        SC_MANAGER_NOTES_C
+    FROM FUNCTIONAL.GTM_SALES_OPS.DIM_CRM_OPPORTUNITIES_SFDC_FIELDS_DAILY_SNAPSHOT
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) = 1
+) sfdc_fields
+    ON dim.CRM_OPPORTUNITY_ID = sfdc_fields.ID
+
+-- Join for territory name via the account's assigned territory (dedupe roster to one row per territory)
+LEFT JOIN (
+    SELECT
+        TERRITORY_ID,
+        TERRITORY_NAME
+    FROM FUNCTIONAL.GTM_SALES_OPS.ROSTER
+    WHERE TERRITORY_NAME IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY TERRITORY_ID ORDER BY TERRITORY_ID) = 1
+) roster
+    ON acc.ASSIGNED_TERRITORY_ID_C = roster.TERRITORY_ID
+
 WHERE dim.RUN_DATE = (
     SELECT MAX(RUN_DATE)
     FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
@@ -316,6 +414,6 @@ WHERE dim.RUN_DATE = (
   -- Filter: Stages 00-07 only
   AND SUBSTRING(dim.OPPORTUNITY_STAGE_NAME, 1, 2) IN ('00', '01', '02', '03', '04', '05', '06', '07')
 
-ORDER BY dim.OPPORTUNITY_NAME
+ORDER BY stg.NAME
 `;
 }

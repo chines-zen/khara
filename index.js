@@ -39,7 +39,10 @@ const PORT = process.env.PORT || 8080;
 // ============================================================================
 
 let snowflakeConnected = false;
+let snowflakeLastError = null;
 let databaseConnected = false;
+
+const SNOWFLAKE_RETRY_INTERVAL_MS = 30_000;
 
 // Initialize database on startup
 initializeDatabase()
@@ -56,16 +59,25 @@ initializeDatabase()
     console.error('   The app will run but database features will fail.');
   });
 
-// Connect to Snowflake on startup
-connectToSnowflake()
-  .then(() => {
-    snowflakeConnected = true;
-    console.log('✅ Snowflake connection established');
-  })
-  .catch((err) => {
-    console.error('❌ Failed to connect to Snowflake:', err.message);
-    console.error('   The app will run but API calls will fail.');
-  });
+// Connect to Snowflake on startup, retrying on failure so a missed SSO
+// prompt or transient error doesn't permanently disable it for the process lifetime.
+function connectToSnowflakeWithRetry() {
+  connectToSnowflake()
+    .then(() => {
+      snowflakeConnected = true;
+      snowflakeLastError = null;
+      console.log('✅ Snowflake connection established');
+    })
+    .catch((err) => {
+      snowflakeConnected = false;
+      snowflakeLastError = err.message;
+      console.error('❌ Failed to connect to Snowflake:', err.message);
+      console.error(`   Retrying in ${SNOWFLAKE_RETRY_INTERVAL_MS / 1000}s. API calls will fail until connected.`);
+      setTimeout(connectToSnowflakeWithRetry, SNOWFLAKE_RETRY_INTERVAL_MS);
+    });
+}
+
+connectToSnowflakeWithRetry();
 
 // ============================================================================
 // MIDDLEWARE (ORDER MATTERS!)
@@ -173,6 +185,7 @@ app.get('/api/health', async (req, res) => {
     snowflake: {
       status: snowflakeConnected ? 'connected' : 'disconnected',
       database: 'Snowflake',
+      lastError: snowflakeConnected ? null : snowflakeLastError,
     },
     postgresql: dbHealth,
     timestamp: new Date().toISOString(),
