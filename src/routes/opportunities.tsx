@@ -271,7 +271,7 @@ function OpportunitiesPage() {
     return (
       <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
         <AppNav />
-        <main className="max-w-[1440px] mx-auto p-6">
+        <main className="p-6">
           <div className="bg-white border border-zd-border rounded p-8 text-center text-sm text-zd-teal/70">
             {scNotFoundError.message}
           </div>
@@ -281,10 +281,10 @@ function OpportunitiesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
+    <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 flex flex-col">
       <AppNav />
       <OppScopeOnboardingDialog open={showOnboarding} onSave={handleOnboardingSave} />
-      <main className="max-w-[1440px] mx-auto p-6 space-y-6">
+      <main className="p-6 space-y-6 flex-1 flex flex-col min-h-0">
         {showDisclaimer && (
           <div className="flex items-start justify-between gap-3 bg-zd-green/10 border border-zd-green/30 text-zd-dark rounded px-4 py-2.5 text-sm">
             <p>
@@ -306,8 +306,8 @@ function OpportunitiesPage() {
         <FilterBar filters={filters} onChange={setFilters} opportunities={allOpportunities} />
 
 
-        <div className="grid grid-cols-10 gap-0 bg-white border border-zd-border rounded overflow-hidden h-[calc(100vh-260px)] min-h-[520px] shadow-sm">
-          <div className="col-span-3 border-r border-zd-border flex flex-col h-full min-h-0 min-w-0">
+        <div className="flex gap-0 bg-white border border-zd-border rounded overflow-hidden flex-1 min-h-[520px] shadow-sm">
+          <div className="w-[380px] shrink-0 border-r border-zd-border flex flex-col min-h-0">
             <div className="border-b border-zd-border bg-zd-bg/50">
               <div className="p-3 flex items-center justify-between">
                 <span className="text-[11px] font-bold text-zd-teal/60 uppercase tracking-wider">
@@ -397,7 +397,7 @@ function OpportunitiesPage() {
           {selected ? (
             <OpportunityDetail opp={selected} isHidden={hiddenIds.includes(selected.id)} />
           ) : (
-            <div className="col-span-7 flex items-center justify-center text-sm text-zd-teal/50">
+            <div className="flex-1 min-w-0 flex items-center justify-center text-sm text-zd-teal/50">
               Select an opportunity to view details.
             </div>
           )}

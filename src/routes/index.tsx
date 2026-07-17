@@ -174,9 +174,9 @@ function DashboardPage() {
   const oppIds = useMemo(() => filtered.map((o) => o.id), [filtered]);
 
   return (
-    <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
+    <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
       <AppNav />
-      <main className="max-w-[1440px] mx-auto p-6 space-y-6">
+      <main className="p-6 space-y-6">
         <DashboardFilterBar filters={filters} onChange={setFilters} opportunities={opportunities} />
 
         <div className="grid grid-cols-4 gap-4">
@@ -338,7 +338,7 @@ function SortableOppTable({ opps }: { opps: Opportunity[] }) {
                     {fmtCompact(o.amount)}
                   </td>
                   <td className="px-4 py-2 text-zd-teal/90">{o.stage}</td>
-                  <td className="px-4 py-2 font-mono text-zd-teal/80">
+                  <td className="px-4 py-2 font-mono text-zd-teal/80 whitespace-nowrap">
                     {fmtDate(o.closeDate)}
                   </td>
                 </tr>

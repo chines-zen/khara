@@ -179,7 +179,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
   return (
     <div
       key={opp.id}
-      className="col-span-7 flex flex-col h-full min-h-0 min-w-0 bg-white animate-row"
+      className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-white animate-row"
     >
       {/* Header */}
       <div className="p-6 border-b border-zd-border">
