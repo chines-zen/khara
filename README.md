@@ -1,6 +1,6 @@
 # SE Opportunity Rigor
 
-A modern sales opportunity management application with real-time Salesforce data via Snowflake integration.
+A sales opportunity tracking app for Solutions Consultants — surfaces their scoped Salesforce pipeline (via Snowflake), tracks D-Score deal health, and lets SCs/managers layer notes on top.
 
 Built with React, Vite, and Tailwind CSS on the frontend, and a single Express server (`index.js`) on the backend — handling Snowflake queries, Postgres-backed caching/preferences/sessions, and Pomerium auth. There is exactly one server; see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -25,8 +25,8 @@ npm run dev
 # Open http://localhost:3000
 ```
 
-### Production (with Snowflake)
-See [QUICK_START.md](QUICK_START.md) for Snowflake setup instructions.
+### Local dev without Snowflake
+Set `USE_MOCK_DATA=true` in `.env` (see `.env.example`) to run against the static opportunities in `src/lib/opportunities.ts` instead of live Snowflake. Pair with `DEV_MODE=true` to bypass Pomerium auth. See [ARCHITECTURE.md](ARCHITECTURE.md#local-dev-flags-env) for all local dev flags.
 
 ## 📁 Project Structure
 
@@ -34,12 +34,15 @@ See [QUICK_START.md](QUICK_START.md) for Snowflake setup instructions.
 se-opp-rigor/
 ├── index.js                 # The one server: Express, Snowflake, Postgres, auth
 ├── routes/, services/, middleware/, db/   # Express backend modules
+├── snowflake-connection.js, snowflake-queries.js  # Snowflake SDK wrapper + SQL builders
 ├── src/
 │   ├── routes/              # Page components (built into dist/ by vite.config.spa.ts)
-│   │   ├── opportunities.tsx    # Main opportunities view
-│   │   └── admin.tsx            # System health dashboard
+│   │   ├── index.tsx            # Pipeline dashboard (KPIs, stage chart)
+│   │   ├── opportunities.tsx    # Main opportunity list + detail view
+│   │   ├── settings.tsx         # Preferences, opp-scope, dev tools
+│   │   └── admin.tsx            # System health & stats dashboard
 │   ├── lib/api/              # Client-side fetch() wrappers calling index.js's /api/* routes
-│   └── components/          # Reusable UI components
+│   └── components/opportunities/  # Opportunity list/detail/nav UI components
 ├── snowflake-schema.sql     # Database schema
 ├── migrate-mock-data.sql    # Sample data
 └── .env.example             # Configuration template
@@ -47,22 +50,15 @@ se-opp-rigor/
 
 ## 🎯 Features
 
-### Current Features
-- ✅ View and filter sales opportunities
-- ✅ Search by name, account, or owner
-- ✅ Filter by stage, owner, close month
-- ✅ Sort by close date, amount, or staleness
-- ✅ Detailed opportunity view with notes
-- ✅ D-Score health tracking
-- ✅ Responsive design
-
-### Snowflake Integration (Ready to Enable)
-- ✅ Real-time data from Snowflake
-- ✅ Server-side filtering and querying
-- ✅ Connection health monitoring
-- ✅ Database statistics dashboard
-- ✅ Automatic caching (5-minute default)
-- ✅ Error handling and retry logic
+- View, search, and filter opportunities by stage, owner, and close month
+- Sort by close date, amount, or staleness
+- Detailed opportunity view with SC notes, manager notes, and next steps
+- D-Score deal health tracking, with an AI-generated summary of recent notes (Vertex AI/Gemini)
+- Hide/unhide opportunities per user
+- Pipeline dashboard with KPIs and a stage breakdown chart
+- Per-user opportunity scope (ARR threshold + close-date window) and preferences (name, date format, timezone)
+- Server-side Snowflake scoping by SC identity, with a 12-hour Postgres cache
+- Admin dashboard for Snowflake/Postgres connection health and pipeline stats
 
 ## 📊 Data Model
 
@@ -72,7 +68,7 @@ se-opp-rigor/
 | `id` | string | Unique identifier (e.g., OPP-94821) |
 | `name` | string | Opportunity name |
 | `account` | string | Customer account name |
-| `stage` | enum | Sales stage (7 stages) |
+| `stage` | enum | Sales stage (6 stages) |
 | `amount` | number | Deal value in USD |
 | `closeDate` | string | Expected close date (ISO) |
 | `owner` | string | Sales rep owner |
@@ -81,7 +77,7 @@ se-opp-rigor/
 | `managerNotes` | string | Manager commentary |
 | `scManagerNotes` | string | SC manager notes |
 | `dScore` | number | Deal health score (0-100) |
-| `recentDScoreDate` | string | Last score update date |
+| `lastUpdateDate` | string \| null | Most recent date mentioned in SC Notes |
 | `dScoreDelta` | number | Score change |
 
 ### Sales Stages
@@ -89,8 +85,8 @@ se-opp-rigor/
 2. Qualification
 3. Proposal
 4. Negotiation
-5. Closed Won
-6. Closed Lost
+5. Won
+6. Lost
 
 ## 🔧 Configuration
 
@@ -107,7 +103,22 @@ SNOWFLAKE_WAREHOUSE=COMPUTE_WH
 SNOWFLAKE_DATABASE=SE_OPP_RIGOR
 SNOWFLAKE_SCHEMA=PUBLIC
 SNOWFLAKE_ROLE=SYSADMIN
+
+# Postgres (sessions, preferences, caching)
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=se_opp_rigor
+DB_USER=postgres
+DB_PASSWORD=
+
+# Local dev flags — see ARCHITECTURE.md for details
+USE_MOCK_DATA=true
+USE_TEST_OPPS=false
+DEV_MODE=true
+DEV_USER_EMAIL=your_email@zendesk.com
 ```
+
+See `.env.example` for the full list, including Vertex AI (`GOOGLE_CLOUD_PROJECT`) and session (`SESSION_SECRET`) settings.
 
 **Important:** Never commit `.env` to version control!
 
@@ -122,10 +133,13 @@ SNOWFLAKE_ROLE=SYSADMIN
 ### 2. Load Sample Data (Optional)
 ```sql
 -- Run migrate-mock-data.sql
--- Loads 20 sample opportunities
+-- Loads sample opportunities
 ```
 
-### 3. Verify Setup
+### 3. Postgres Tables
+Created automatically on server startup by `db/index.js` (users, sessions, user_preferences, hidden_opportunities, sc_opportunities_cache, opportunity_summaries).
+
+### 4. Verify Setup
 ```bash
 # Visit http://localhost:8080/admin (or :3000 under npm run dev)
 # Check connection status and statistics
@@ -133,10 +147,9 @@ SNOWFLAKE_ROLE=SYSADMIN
 
 ## 📚 Documentation
 
-- **[QUICK_START.md](QUICK_START.md)** - Fast setup guide (5 steps)
-- **[SNOWFLAKE_SETUP.md](SNOWFLAKE_SETUP.md)** - Complete integration guide
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture & diagrams
-- **[SNOWFLAKE_INTEGRATION_SUMMARY.md](SNOWFLAKE_INTEGRATION_SUMMARY.md)** - Implementation summary
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture, data flow, and local dev flags
+- **[SNOWFLAKE_SETUP.md](SNOWFLAKE_SETUP.md)** - Snowflake integration guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment guide
 
 ## 🛠️ Development
 
@@ -165,17 +178,20 @@ npm run format
 - **Backend:** Express (`index.js`) — the only server
 - **Styling:** Tailwind CSS 4
 - **UI Components:** Radix UI
+- **Charts:** Recharts
 - **Databases:** Snowflake (opportunity data), Postgres (sessions, preferences, caching)
+- **AI:** Vertex AI (Gemini) for opportunity note summaries
 - **Icons:** Lucide React
 - **Package Manager:** npm
 
 ## 🔐 Security
 
-- ✅ All credentials stored in environment variables
-- ✅ `.server.js` files are only ever imported by `index.js`, never bundled into the client
-- ✅ Parameterized queries prevent SQL injection
-- ✅ `.gitignore` prevents credential commits
-- ✅ No sensitive data sent to client
+- All credentials stored in environment variables
+- `.server.js` files are only ever imported by `index.js`, never bundled into the client
+- Parameterized queries prevent SQL injection
+- `.gitignore` prevents credential commits
+- No sensitive data sent to client
+- `DEV_MODE` and `USE_TEST_OPPS` are local-dev-only escape hatches — must be `false`/unset in production
 
 ## 🚀 Deployment
 
@@ -187,32 +203,8 @@ Deploy `index.js`, `package.json`, and the built `dist/` directory to any platfo
 
 ### Admin Dashboard
 Visit `/admin` to monitor:
-- Snowflake connection health
-- Query latency
-- Database statistics
-- Opportunity counts by stage/owner
-- Total pipeline value
-
-### Performance
-- Client-side caching (5 min default)
-- Database indexes on key fields
-- Server-side filtering reduces data transfer
-- TanStack Query handles retry logic
-
-## 🤝 Contributing
-
-This is a prototype/demo project. For production use:
-
-1. Add authentication (e.g., Clerk, Auth0)
-2. Implement role-based access control
-3. Add rate limiting
-4. Set up monitoring (Sentry, DataDog)
-5. Add comprehensive testing
-6. Set up CI/CD pipeline
-
-## 📝 License
-
-Private/Proprietary - Not for redistribution
+- Snowflake and Postgres connection health
+- Pipeline statistics (opportunity counts, total pipeline value, stages, owners)
 
 ## 🆘 Troubleshooting
 
@@ -237,47 +229,6 @@ Run `snowflake-schema.sql` in Snowflake to create tables
 ### Application still shows mock data
 Set `USE_MOCK_DATA=false` in `.env` (see `services/` for the Snowflake-backed query paths `index.js` uses).
 
-## 🎓 Learning Resources
+## 📝 License
 
-- [TanStack Router Docs](https://tanstack.com/router/latest)
-- [TanStack Query Docs](https://tanstack.com/query/latest)
-- [Snowflake Node.js Driver](https://docs.snowflake.com/en/user-guide/nodejs-driver)
-- [Tailwind CSS](https://tailwindcss.com)
-- [Radix UI](https://www.radix-ui.com)
-
-## 🗺️ Roadmap
-
-### Phase 1: Core Features (Current)
-- ✅ Opportunity list and detail views
-- ✅ Filtering and search
-- ✅ Snowflake integration ready
-
-### Phase 2: Data Integration (Next)
-- ⏭️ Connect to production Snowflake
-- ⏭️ Real-time Salesforce sync
-- ⏭️ Data validation and error handling
-
-### Phase 3: Advanced Features
-- ⏭️ Analytics and reporting
-- ⏭️ Trend analysis
-- ⏭️ Forecast modeling
-- ⏭️ Email notifications
-- ⏭️ Export to CSV/PDF
-
-### Phase 4: Team Features
-- ⏭️ User authentication
-- ⏭️ Role-based permissions
-- ⏭️ Collaboration tools
-- ⏭️ Activity logging
-
-## 📬 Support
-
-For questions or issues:
-1. Check the documentation files
-2. Review the `/admin` dashboard for diagnostics
-3. Check browser console for client errors
-4. Check server logs for backend errors
-
----
-
-**Built with ❤️ using Claude Code**
+Private/Proprietary - Not for redistribution

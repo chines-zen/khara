@@ -2,25 +2,29 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Settings, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { usePreferredName } from "@/lib/preferences";
+import { usePreferredName, useTimezone } from "@/lib/preferences";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 
-function formatLastRefreshed(iso: string | undefined) {
+function formatLastRefreshed(iso: string | undefined, timezone: string) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  const hours24 = d.getHours();
-  const period = hours24 >= 12 ? "PM" : "AM";
-  const hh = String(hours24 % 12 || 12).padStart(2, "0");
-  return `${mm}/${dd} ${hh}:${min} ${period}`;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("month")}/${get("day")} ${get("hour")}:${get("minute")} ${get("dayPeriod").toUpperCase()}`;
 }
 
 export function AppNav() {
   const linkBase = "px-[15px] py-[5px] text-[15px] font-medium";
   const preferredName = usePreferredName();
+  const timezone = useTimezone();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -31,7 +35,7 @@ export function AppNav() {
     queryFn: fetchOpportunities,
     enabled: false,
   });
-  const lastRefreshed = formatLastRefreshed(data?.metadata?.cachedAt);
+  const lastRefreshed = formatLastRefreshed(data?.metadata?.cachedAt, timezone);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

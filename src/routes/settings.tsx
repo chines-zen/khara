@@ -2,7 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppNav } from "@/components/opportunities/AppNav";
-import { PREFERRED_NAME_QUERY_KEY } from "@/lib/preferences";
+import { PREFERRED_NAME_QUERY_KEY, TIMEZONE_QUERY_KEY } from "@/lib/preferences";
 import {
   fetchUserPreference,
   saveUserPreference,
@@ -12,6 +12,24 @@ import {
   DEFAULT_ARR_THRESHOLD,
   type OppScopeSettings,
 } from "@/components/opportunities/OppScopeOnboardingDialog";
+
+const TIMEZONE_OPTIONS = [
+  { value: "America/Los_Angeles", label: "Pacific Time (US & Canada)" },
+  { value: "America/Denver", label: "Mountain Time (US & Canada)" },
+  { value: "America/Chicago", label: "Central Time (US & Canada)" },
+  { value: "America/New_York", label: "Eastern Time (US & Canada)" },
+  { value: "America/Sao_Paulo", label: "Brasilia" },
+  { value: "UTC", label: "UTC" },
+  { value: "Europe/London", label: "London" },
+  { value: "Europe/Paris", label: "Paris, Berlin, Madrid" },
+  { value: "Europe/Athens", label: "Athens, Helsinki" },
+  { value: "Asia/Kolkata", label: "Mumbai, New Delhi" },
+  { value: "Asia/Singapore", label: "Singapore" },
+  { value: "Asia/Tokyo", label: "Tokyo, Seoul" },
+  { value: "Australia/Sydney", label: "Sydney" },
+];
+
+const BROWSER_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -27,6 +45,7 @@ function SettingsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [dateFormat, setDateFormat] = useState("mm/dd/yyyy");
+  const [timezone, setTimezone] = useState(BROWSER_TIMEZONE);
   const [preferredName, setPreferredNameState] = useState("");
   const [saved, setSaved] = useState(false);
 
@@ -47,6 +66,9 @@ function SettingsPage() {
     });
     fetchUserPreference<string>("dateFormat").then((savedFormat) => {
       if (savedFormat) setDateFormat(savedFormat);
+    });
+    fetchUserPreference<string>("timezone").then((savedTimezone) => {
+      if (savedTimezone) setTimezone(savedTimezone);
     });
   }, []);
 
@@ -75,7 +97,9 @@ function SettingsPage() {
     e.preventDefault();
     await saveUserPreference("preferredName", preferredName.trim());
     await saveUserPreference("dateFormat", dateFormat.trim());
+    await saveUserPreference("timezone", timezone);
     queryClient.invalidateQueries({ queryKey: PREFERRED_NAME_QUERY_KEY });
+    queryClient.invalidateQueries({ queryKey: TIMEZONE_QUERY_KEY });
     setSaved(true);
     setTimeout(() => {
       router.history.back();
@@ -148,6 +172,29 @@ function SettingsPage() {
             />
             <p className="mt-2 text-[11px] text-zd-teal/70">
               Please enter the format you use when adding SC notes in Salesforce. This is necessary to accurately calculate update periods. <br />Example: mm/dd/yyyy, mm.dd.yy, etc
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+              Timezone
+            </label>
+            <select
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            >
+              {TIMEZONE_OPTIONS.some((option) => option.value === timezone) ? null : (
+                <option value={timezone}>{timezone}</option>
+              )}
+              {TIMEZONE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-[11px] text-zd-teal/70">
+              Used to display the NavBar&apos;s last-refreshed time in your local time.
             </p>
           </div>
 

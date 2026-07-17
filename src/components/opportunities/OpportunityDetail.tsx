@@ -2,6 +2,7 @@ import { useRef, useState, useLayoutEffect, useEffect } from "react";
 import { AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Opportunity } from "@/lib/opportunities";
+import { formatDisplayDate } from "@/lib/utils";
 
 const fmt = (n: number) => `$${n.toLocaleString()}`;
 
@@ -9,10 +10,7 @@ function buildDScoreHistory(opp: Opportunity) {
   // Synthesize 5 mock entries ending at the current score.
   // recentDScoreDate only exists on mock data; live Snowflake opps fall
   // back to lastUpdateDate/closeDate, then today, to avoid an invalid Date.
-  const rawEndDate =
-    (opp as { recentDScoreDate?: string }).recentDScoreDate ||
-    opp.lastUpdateDate ||
-    opp.closeDate;
+  const rawEndDate = opp.recentDScoreDate || opp.lastUpdateDate || opp.closeDate;
   const parsedEnd = rawEndDate ? new Date(rawEndDate) : new Date();
   const end = Number.isNaN(parsedEnd.getTime()) ? new Date() : parsedEnd;
   const entries: { date: string; score: number }[] = [];
@@ -169,7 +167,14 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
   const aeNotes = opp.nextSteps || "No data available";
   const aeMgrNotes = opp.managerNotes || "No data available";
   const overlayNotes = opp.productSpecialistNotes || "No data available";
-  const engagementType = opp.scEngagementType || "No data available";
+  const engagementTypeOptions = (opp.scEngagementType || "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const engagementType =
+    engagementTypeOptions.length > 0
+      ? engagementTypeOptions.join("\n")
+      : "No data available";
 
   return (
     <div
@@ -226,7 +231,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
                   Error - click for help
                 </button>
               ) : opp.lastUpdateDate ? (
-                opp.lastUpdateDate
+                formatDisplayDate(opp.lastUpdateDate)
               ) : (
                 <span className="text-zd-teal/40">No SC notes</span>
               )}
@@ -260,7 +265,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
           </div>
           <div>
             <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Close Date</dt>
-            <dd className="text-sm font-medium text-zd-dark mt-1">{opp.closeDate}</dd>
+            <dd className="text-sm font-medium text-zd-dark mt-1">{formatDisplayDate(opp.closeDate)}</dd>
           </div>
         </div>
       </div>

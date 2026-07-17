@@ -221,17 +221,26 @@ function OpportunitiesPage() {
     saveUserPreference('showHiddenOpportunities', showHidden).catch(console.error);
   }, [showHidden, filtersLoaded]);
 
-  // Apply filters client-side and hide/show hidden opps
-  const filtered = useMemo(() => {
-    const withFilters = applyFilters(allOpportunities, filters);
+  // Apply filters client-side (independent of showHidden, so we can count
+  // hidden opps that would otherwise be visible)
+  const withFilters = useMemo(
+    () => applyFilters(allOpportunities, filters),
+    [allOpportunities, filters]
+  );
 
-    // Filter by hidden state
+  const visibleHiddenCount = useMemo(
+    () => withFilters.filter((opp) => hiddenIds.includes(opp.id)).length,
+    [withFilters, hiddenIds]
+  );
+
+  // Hide/show hidden opps on top of the filtered set
+  const filtered = useMemo(() => {
     if (!showHidden) {
       return withFilters.filter((opp) => !hiddenIds.includes(opp.id));
     }
 
     return withFilters;
-  }, [allOpportunities, filters, hiddenIds, showHidden]);
+  }, [withFilters, hiddenIds, showHidden]);
 
   const sorted = useMemo(() => {
     const list = [...filtered];
@@ -310,9 +319,6 @@ function OpportunitiesPage() {
                     </>
                   )}
                 </span>
-                <span className="text-[10px] text-zd-teal/40 font-mono">
-                  {!isLoading && `of ${allOpportunities.length}`}
-                </span>
               </div>
               <div className="px-3 pb-2 flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1">
@@ -360,7 +366,7 @@ function OpportunitiesPage() {
                     className="w-3 h-3 cursor-pointer"
                   />
                   <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-                    Show Hidden
+                    Show Hidden ({visibleHiddenCount})
                   </span>
                 </label>
               </div>
