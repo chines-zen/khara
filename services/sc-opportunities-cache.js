@@ -1,6 +1,7 @@
 import { pool } from '../db/index.js';
 import { executeQuery } from '../snowflake-connection.js';
 import { buildScOpportunitiesQuery } from '../snowflake-queries.js';
+import { resolveScUserId } from './sc-lookup.js';
 
 const CACHE_TTL_HOURS = 12;
 
@@ -8,8 +9,9 @@ const CACHE_TTL_HOURS = 12;
  * Get opportunities for SC user (with 12-hour cache)
  * @param {number} userId - PostgreSQL user ID
  * @param {string} userEmail - Email for Snowflake lookup
+ * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
  */
-export async function getScOpportunities(userId, userEmail) {
+export async function getScOpportunities(userId, userEmail, scope = {}) {
   console.log(`[SC Cache] Checking cache for user ${userId} (${userEmail})`);
 
   // Check cache first
@@ -26,7 +28,7 @@ export async function getScOpportunities(userId, userEmail) {
 
   // Cache miss - query Snowflake
   console.log(`[SC Cache] MISS - querying Snowflake for user ${userId}`);
-  const { snowflakeUserId, opportunities } = await fetchScOpportunitiesFromSnowflake(userEmail);
+  const { snowflakeUserId, opportunities } = await fetchScOpportunitiesFromSnowflake(userEmail, scope);
   console.log(`[SC Cache] Returned ${opportunities.length} opportunities for SC`);
 
   // Store in cache
@@ -57,25 +59,18 @@ async function getCachedScOpportunities(userId) {
   return result.rows.length > 0 ? result.rows[0] : null;
 }
 
-async function fetchScOpportunitiesFromSnowflake(userEmail) {
+async function fetchScOpportunitiesFromSnowflake(userEmail, scope = {}) {
   // Step 1: Look up Snowflake USER_ID from email
-  const userLookupSql = `
-    SELECT USER_ID, FULL_NAME, EMAIL
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-    WHERE LOWER(EMAIL) = LOWER('${userEmail.replace(/'/g, "''")}')
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY USER_ID) = 1
-  `;
+  const scUser = await resolveScUserId(userEmail);
 
-  const userRows = await executeQuery(userLookupSql);
-
-  if (userRows.length === 0) {
+  if (!scUser) {
     throw new Error(`No Snowflake user found for email: ${userEmail}`);
   }
 
-  const snowflakeUserId = userRows[0].USER_ID;
+  const snowflakeUserId = scUser.userId;
 
-  // Step 2: Query opportunities where this user is SC, stages 00-07 only
-  const oppSql = buildScOpportunitiesQuery(snowflakeUserId);
+  // Step 2: Query opportunities where this user is SC, scoped by stage + ARR/close-date
+  const oppSql = buildScOpportunitiesQuery(snowflakeUserId, scope);
   const oppRows = await executeQuery(oppSql);
 
   // Step 3: Transform to frontend format
@@ -120,12 +115,17 @@ export async function cleanupExpiredScCache() {
  * Transform Snowflake row to match frontend format
  * (Reused from index.js)
  */
+function normalizeStage(stage) {
+  if (stage === '08 - Closed') return 'Won';
+  return stage;
+}
+
 function transformOpportunity(row) {
   return {
     id: row.ID,
     name: row.NAME,
     account: row.ACCOUNT || 'Unknown Account',
-    stage: row.STAGE || 'Unknown',
+    stage: normalizeStage(row.STAGE) || 'Unknown',
     type: row.TYPE,
     territory: row.TERRITORY,
     amount: row.AMOUNT || 0,

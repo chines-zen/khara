@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SE Opp Rigor - Preview</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f7fa;
+            color: #1a202c;
+        }
+
+        .nav {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .nav h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0d7a5f;
+        }
+
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+
+        .disclaimer {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .disclaimer strong { color: #065f46; }
+
+        .filter-bar {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-bar input, .filter-bar select {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #cbd5e0;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+        }
+
+        .filter-bar input {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .main-view {
+            display: grid;
+            grid-template-columns: 3fr 7fr;
+            gap: 0;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            height: calc(100vh - 260px);
+            min-height: 520px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .list-panel {
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .list-header {
+            background: rgba(245, 247, 250, 0.5);
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0.75rem;
+        }
+
+        .list-header .count {
+            font-size: 0.6875rem;
+            font-weight: 700;
+            color: rgba(13, 122, 95, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .list-items {
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .opp-item {
+            padding: 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .opp-item:hover {
+            background: #f7fafc;
+        }
+
+        .opp-item.active {
+            background: rgba(16, 185, 129, 0.08);
+            border-left: 3px solid #10b981;
+        }
+
+        .opp-name {
+            font-weight: 600;
+            font-size: 0.9375rem;
+            margin-bottom: 0.25rem;
+            color: #1a202c;
+        }
+
+        .opp-account {
+            font-size: 0.8125rem;
+            color: #4a5568;
+            margin-bottom: 0.5rem;
+        }
+
+        .opp-meta {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            font-size: 0.75rem;
+        }
+
+        .stage-badge {
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.6875rem;
+            font-weight: 600;
+        }
+
+        .stage-negotiation { background: #fef3c7; color: #92400e; }
+        .stage-proposal { background: #dbeafe; color: #1e3a8a; }
+        .stage-qualification { background: #e0e7ff; color: #3730a3; }
+        .stage-won { background: #d1fae5; color: #065f46; }
+        .stage-prospecting { background: #f3f4f6; color: #374151; }
+
+        .amount {
+            font-weight: 600;
+            color: #0d7a5f;
+            font-family: 'Monaco', monospace;
+        }
+
+        .d-score {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .d-score-dot {
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+        }
+
+        .d-score-high { background: #10b981; }
+        .d-score-medium { background: #f59e0b; }
+        .d-score-low { background: #ef4444; }
+
+        .detail-panel {
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .detail-header {
+            margin-bottom: 2rem;
+        }
+
+        .detail-title {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: #1a202c;
+        }
+
+        .detail-account {
+            font-size: 1.125rem;
+            color: #4a5568;
+            margin-bottom: 1rem;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .detail-field {
+            background: #f7fafc;
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            margin-bottom: 0.25rem;
+        }
+
+        .detail-value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1a202c;
+        }
+
+        .section {
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 0.875rem;
+            font-weight: 700;
+            color: #4a5568;
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .section-content {
+            font-size: 0.9375rem;
+            line-height: 1.6;
+            color: #2d3748;
+        }
+
+        .next-steps {
+            list-style: none;
+        }
+
+        .next-steps li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .next-steps li:before {
+            content: "→ ";
+            color: #10b981;
+            font-weight: 700;
+            margin-right: 0.5rem;
+        }
+
+        .big-score {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .big-score-number {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .big-score-label {
+            font-size: 0.875rem;
+            color: #065f46;
+        }
+
+        .big-score-delta {
+            font-size: 1.25rem;
+            color: #10b981;
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <h1>SE Opp Rigor</h1>
+    </nav>
+
+    <div class="container">
+        <div class="disclaimer">
+            <p><strong>Salesforce Data</strong> refreshed every 24 – 36 hours. Changes made since then will not be reflected in the data set below.</p>
+        </div>
+
+        <div class="filter-bar">
+            <input type="text" placeholder="Search opportunities..." value="">
+            <select>
+                <option>All Stages</option>
+                <option>Negotiation</option>
+                <option>Proposal</option>
+                <option>Qualification</option>
+            </select>
+            <select>
+                <option>All Owners</option>
+                <option>Sarah Jenkins</option>
+                <option>Marcus Thorne</option>
+                <option>David Kim</option>
+            </select>
+        </div>
+
+        <div class="main-view">
+            <div class="list-panel">
+                <div class="list-header">
+                    <div class="count">20 RESULTS <span style="opacity: 0.5; margin-left: 0.5rem;">of 20</span></div>
+                    <div style="margin-top: 0.5rem; font-size: 0.6875rem;">
+                        <strong style="color: rgba(13, 122, 95, 0.6); text-transform: uppercase;">Sort:</strong>
+                        <span style="color: #0d7a5f; font-weight: 600;">Close Date</span>
+                    </div>
+                </div>
+                <div class="list-items">
+                    <div class="opp-item active" onclick="selectOpp(0)">
+                        <div class="opp-name">Acme Global Expansion</div>
+                        <div class="opp-account">Acme Corp</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-negotiation">Negotiation</span>
+                            <span class="amount">$142,000</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-high"></span>
+                                <span>82</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="opp-item" onclick="selectOpp(1)">
+                        <div class="opp-name">CloudScale Renewal+</div>
+                        <div class="opp-account">CloudScale Corp</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-qualification">Qualification</span>
+                            <span class="amount">$210,000</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-low"></span>
+                                <span>34</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="opp-item" onclick="selectOpp(2)">
+                        <div class="opp-name">FinStream Compliance Module</div>
+                        <div class="opp-account">FinStream Inc</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-negotiation">Negotiation</span>
+                            <span class="amount">$15,500</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-high"></span>
+                                <span>91</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="opp-item" onclick="selectOpp(3)">
+                        <div class="opp-name">Northwind ERP Connector</div>
+                        <div class="opp-account">Northwind Traders</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-negotiation">Negotiation</span>
+                            <span class="amount">$38,000</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-high"></span>
+                                <span>84</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="opp-item" onclick="selectOpp(4)">
+                        <div class="opp-name">Skyline Cloud Native Upgrade</div>
+                        <div class="opp-account">Skyline Dev</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-negotiation">Negotiation</span>
+                            <span class="amount">$140,000</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-high"></span>
+                                <span>92</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="opp-item" onclick="selectOpp(5)">
+                        <div class="opp-name">Helix Bio Research Suite</div>
+                        <div class="opp-account">Helix Biotech</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-proposal">Proposal</span>
+                            <span class="amount">$96,000</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-medium"></span>
+                                <span>70</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="opp-item" onclick="selectOpp(6)">
+                        <div class="opp-name">Nebula Data Platform</div>
+                        <div class="opp-account">Nebula Systems</div>
+                        <div class="opp-meta">
+                            <span class="stage-badge stage-proposal">Proposal</span>
+                            <span class="amount">$64,500</span>
+                            <div class="d-score">
+                                <span class="d-score-dot d-score-medium"></span>
+                                <span>58</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="detail-panel">
+                <div class="detail-header">
+                    <div class="detail-title">Acme Global Expansion</div>
+                    <div class="detail-account">Acme Corp</div>
+
+                    <div class="big-score">
+                        <div>
+                            <div class="big-score-number">82</div>
+                            <div class="big-score-label">D-Score</div>
+                        </div>
+                        <div>
+                            <div class="big-score-delta">+5</div>
+                            <div class="big-score-label">Since 2026-05-12</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-grid">
+                    <div class="detail-field">
+                        <div class="detail-label">Stage</div>
+                        <div class="detail-value">Negotiation</div>
+                    </div>
+                    <div class="detail-field">
+                        <div class="detail-label">Amount</div>
+                        <div class="detail-value">$142,000</div>
+                    </div>
+                    <div class="detail-field">
+                        <div class="detail-label">Close Date</div>
+                        <div class="detail-value">2026-07-12</div>
+                    </div>
+                    <div class="detail-field">
+                        <div class="detail-label">Owner</div>
+                        <div class="detail-value">Sarah Jenkins</div>
+                    </div>
+                    <div class="detail-field">
+                        <div class="detail-label">Days Since Update</div>
+                        <div class="detail-value">20 days</div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">SC Notes</div>
+                    <div class="section-content">
+                        Technical validation complete. Customer requested a custom integration with their legacy ERP. We have a clear path to MVP but need to confirm resource availability for Q3 implementation.
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Next Steps</div>
+                    <ul class="next-steps">
+                        <li>Send updated MSA to Legal</li>
+                        <li>Schedule sync with Product (ERP API)</li>
+                    </ul>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Manager Notes</div>
+                    <div class="section-content">
+                        Sarah has strong champion support in the CTO office. Probability is high if we can handle the compliance review by month end.
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">SC Manager Notes</div>
+                    <div class="section-content">
+                        Ensure the implementation costs are fully loaded in the proposal. Don't discount service hours on this one.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function selectOpp(index) {
+            const items = document.querySelectorAll('.opp-item');
+            items.forEach(item => item.classList.remove('active'));
+            items[index].classList.add('active');
+
+            // In the real app, this would update the detail panel
+            // For this preview, it just highlights the selected item
+        }
+    </script>
+</body>
+</html>

@@ -24,6 +24,8 @@ import { createSessionMiddleware } from './middleware/session.js';
 import { getCachedSummary, cleanupExpiredSummaries } from './services/summary-cache.js';
 import { getHiddenOpportunities, hideOpportunity, unhideOpportunity } from './services/hidden-opportunities.js';
 import { getScOpportunities, invalidateScCache, cleanupExpiredScCache } from './services/sc-opportunities-cache.js';
+import { resolveScUserId } from './services/sc-lookup.js';
+import { getEffectiveOppScope } from './services/opp-scope.js';
 
 // Routes
 import preferencesRouter from './routes/preferences.js';
@@ -145,12 +147,17 @@ function parseMostRecentDateFromNotes(notes) {
 /**
  * Transform Snowflake row to match frontend format
  */
+function normalizeStage(stage) {
+  if (stage === '08 - Closed') return 'Won';
+  return stage;
+}
+
 function transformOpportunity(row) {
   return {
     id: row.ID,
     name: row.NAME,
     account: row.ACCOUNT || 'Unknown Account',
-    stage: row.STAGE || 'Unknown',
+    stage: normalizeStage(row.STAGE) || 'Unknown',
     type: row.TYPE,
     territory: row.TERRITORY,
     amount: row.AMOUNT || 0,
@@ -188,6 +195,7 @@ app.get('/api/health', async (req, res) => {
       lastError: snowflakeConnected ? null : snowflakeLastError,
     },
     postgresql: dbHealth,
+    devMode: process.env.DEV_MODE === 'true',
     timestamp: new Date().toISOString(),
   });
 });
@@ -225,6 +233,27 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
+// DEV_MODE only: let a developer switch which email authenticateWithPomerium's
+// bypass uses, so SC-scoped filtering can be exercised without real Pomerium headers.
+if (process.env.DEV_MODE === 'true') {
+  app.post('/api/dev/session-email', (req, res) => {
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Missing "email" in request body' });
+    }
+
+    req.session.devEmailOverride = email;
+    req.session.save((err) => {
+      if (err) {
+        console.error('Failed to save dev session email:', err);
+        return res.status(500).json({ error: 'Failed to save dev session email' });
+      }
+      res.json({ success: true, email });
+    });
+  });
+}
+
 // ============================================================================
 // PROTECTED API ENDPOINTS (require Pomerium auth)
 // ============================================================================
@@ -232,47 +261,39 @@ app.post('/api/auth/logout', (req, res) => {
 // User preferences routes
 app.use('/api/user-preferences', authenticateWithPomerium, preferencesRouter);
 
-// POST /api/opportunities - Get filtered opportunities
+// POST /api/opportunities - Get filtered opportunities, scoped to the logged-in SC
 app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
   try {
     if (!snowflakeConnected) {
       return res.status(503).json({ error: 'Snowflake connection not established' });
     }
 
+    if (!databaseConnected) {
+      return res.status(503).json({ error: 'Database connection not established' });
+    }
+
+    const scEmail = req.user.email;
+    const scUser = await resolveScUserId(scEmail);
+
+    if (!scUser) {
+      return res.status(404).json({
+        error: 'SC user not found',
+        details: `No Snowflake user record found for email: ${scEmail}. You may not be registered as an SC in Salesforce.`,
+      });
+    }
+
+    const scope = await getEffectiveOppScope(req.user.id);
     const filters = req.body;
 
-    // For testing: use specific opportunity IDs
-    const testOpportunityIds = [
-      '006PC00000UhFIfYAL',
-      '006PC00000VICiQYA1',
-      '0066R00000ugmYLQAY',
-      '006PC00000Lz2yTYAR',
-      '006PC00000VcAe1YAF',
-      '006PC00000ZMrMXYA1',
-      '006PC00000W4CEfYAN',
-      '006PC00000WBQWDYA5',
-      '006PC00000YWPPWYA5',
-      '006PC00000W3pzeYAB',
-      '006PC00000ICTYYYAX',
-      '006PC00000W8JKsYAN',
-      '006PC00000XM41yYAD',
-      '006PC00000XXrU0YAL',
-      '006PC00000V0mcHYAR',
-      '006PC00000YpZpmYAF',
-      '006PC00000TltOcYAJ',
-      '006PC00000VyUcTYAV',
-      '006PC00000YqHvdYAF',
-      '006PC00000UZS8FYAX',
-      '006PC00000Y1pxmYAB',
-    ];
-
-    // Add test opportunity IDs to filters
-    const filtersWithIds = {
+    const filtersWithScope = {
       ...filters,
-      opportunityIds: testOpportunityIds,
+      scUserId: scUser.userId,
+      closeDateFrom: scope.closeDateFrom,
+      closeDateTo: scope.closeDateTo,
+      arrMin: filters.arrMin ?? scope.arrThreshold,
     };
 
-    const sql = buildOpportunitiesQuery(filtersWithIds);
+    const sql = buildOpportunitiesQuery(filtersWithScope);
     console.log('Executing query...');
 
     const rows = await executeQuery(sql);
@@ -286,7 +307,7 @@ app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
   }
 });
 
-// GET /api/opportunities/my-sc-opps - Get opportunities where user is SC (stages 00-07, 12hr cache)
+// GET /api/opportunities/my-sc-opps - Get opportunities where user is SC (scoped by stage + ARR/close-date, 12hr cache)
 app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, res) => {
   console.log('📥 GET /api/opportunities/my-sc-opps - Request received');
   try {
@@ -301,11 +322,13 @@ app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, r
     }
 
     const userId = req.user.id;
-    const userEmail = req.user.email;
-    console.log(`👤 User: ${userId} (${userEmail})`);
+    const scEmail = req.user.email;
+    console.log(`👤 User: ${userId} (SC: ${scEmail})`);
+
+    const scope = await getEffectiveOppScope(userId);
 
     // Get opportunities (with caching)
-    const result = await getScOpportunities(userId, userEmail);
+    const result = await getScOpportunities(userId, scEmail, scope);
 
     res.json({
       opportunities: result.opportunities,
@@ -323,7 +346,7 @@ app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, r
     if (error.message.includes('No Snowflake user found')) {
       return res.status(404).json({
         error: 'SC user not found',
-        details: `No Snowflake user record found for email: ${req.user.email}. You may not be registered as an SC in Salesforce.`,
+        details: error.message,
       });
     }
 

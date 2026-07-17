@@ -1,8 +1,10 @@
+import { TEST_OPP_IDS, isTestOppsEnabled } from './services/test-opps.js';
+
 /**
  * Build SQL query for fetching opportunities with all required fields
  */
 export function buildOpportunitiesQuery(filters = {}) {
-  const { search, stages, owner, closeMonths, daysSinceMax, arrMin, opportunityIds } = filters;
+  const { search, stages, owner, closeMonths, daysSinceMax, arrMin, opportunityIds, scUserId, closeDateFrom, closeDateTo } = filters;
 
   // Base query with all fields from DIM and staging
   let sql = `
@@ -172,10 +174,26 @@ WHERE dim.RUN_DATE = (
     conditions.push(`COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME) = '${ownerEscaped}'`);
   }
 
+  // SC identity filter (scope to opportunities where this Snowflake user is the assigned SC)
+  if (scUserId) {
+    const scUserIdEscaped = scUserId.replace(/'/g, "''");
+    conditions.push(`stg.NAME_OF_SC_C = '${scUserIdEscaped}'`);
+  }
+
   // Close month filter
   if (closeMonths && closeMonths.length > 0) {
     const monthList = closeMonths.map(m => `'${m}'`).join(', ');
     conditions.push(`TO_CHAR(dim.CALENDAR_CLOSEDATE, 'YYYY-MM') IN (${monthList})`);
+  }
+
+  // Close date range filter (e.g. fiscal quarter scoping)
+  if (closeDateFrom) {
+    const fromEscaped = closeDateFrom.replace(/'/g, "''");
+    conditions.push(`dim.CALENDAR_CLOSEDATE >= '${fromEscaped}'`);
+  }
+  if (closeDateTo) {
+    const toEscaped = closeDateTo.replace(/'/g, "''");
+    conditions.push(`dim.CALENDAR_CLOSEDATE <= '${toEscaped}'`);
   }
 
   // Days since D-Score filter
@@ -277,14 +295,9 @@ WHERE dim.RUN_DATE = (SELECT MAX(RUN_DATE) FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OP
 `;
 }
 
-/**
- * Build SQL query for SC-specific opportunities (stages 00-07 only)
- * @param {string} snowflakeUserId - USER_ID from USER_HISTORY table
- */
-export function buildScOpportunitiesQuery(snowflakeUserId) {
-  const userIdEscaped = snowflakeUserId.replace(/'/g, "''");
-
-  return `
+// Shared SELECT/JOIN block for SC-specific opportunity queries (used by both the
+// normal scoped query and the local-dev TEST_OPP_IDS override below)
+const SC_OPPORTUNITIES_SELECT = `
 SELECT
     -- Core fields from DIM
     dim.CRM_OPPORTUNITY_ID AS id,
@@ -404,15 +417,60 @@ LEFT JOIN (
     QUALIFY ROW_NUMBER() OVER (PARTITION BY TERRITORY_ID ORDER BY TERRITORY_ID) = 1
 ) roster
     ON acc.ASSIGNED_TERRITORY_ID_C = roster.TERRITORY_ID
+`;
 
+/**
+ * Build SQL query for SC-specific opportunities (active pipeline stages 00-08 plus Lost)
+ * @param {string} snowflakeUserId - USER_ID from USER_HISTORY table
+ * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
+ */
+export function buildScOpportunitiesQuery(snowflakeUserId, scope = {}) {
+  // Local dev override: ignore SC identity, stage, and ARR/close-date scoping
+  // and pull only the fixed TEST_OPP_IDS set (see services/test-opps.js)
+  if (isTestOppsEnabled()) {
+    const idList = TEST_OPP_IDS.map(id => `'${id}'`).join(', ');
+    return `
+${SC_OPPORTUNITIES_SELECT}
+WHERE dim.RUN_DATE = (
+    SELECT MAX(RUN_DATE)
+    FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
+)
+  AND dim.CRM_OPPORTUNITY_ID IN (${idList})
+
+ORDER BY stg.NAME
+`;
+  }
+
+  const userIdEscaped = snowflakeUserId.replace(/'/g, "''");
+  const { arrThreshold, closeDateFrom, closeDateTo } = scope;
+
+  const scopeConditions = [];
+  if (arrThreshold !== null && arrThreshold !== undefined && !isNaN(arrThreshold)) {
+    scopeConditions.push(`arr.product_arr_usd >= ${arrThreshold}`);
+  }
+  if (closeDateFrom) {
+    const fromEscaped = closeDateFrom.replace(/'/g, "''");
+    scopeConditions.push(`dim.CALENDAR_CLOSEDATE >= '${fromEscaped}'`);
+  }
+  if (closeDateTo) {
+    const toEscaped = closeDateTo.replace(/'/g, "''");
+    scopeConditions.push(`dim.CALENDAR_CLOSEDATE <= '${toEscaped}'`);
+  }
+  const scopeSql = scopeConditions.length > 0 ? `\n  AND ${scopeConditions.join('\n  AND ')}` : '';
+
+  return `
+${SC_OPPORTUNITIES_SELECT}
 WHERE dim.RUN_DATE = (
     SELECT MAX(RUN_DATE)
     FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
 )
   -- Filter: Only this SC's opportunities
   AND stg.NAME_OF_SC_C = '${userIdEscaped}'
-  -- Filter: Stages 00-07 only
-  AND SUBSTRING(dim.OPPORTUNITY_STAGE_NAME, 1, 2) IN ('00', '01', '02', '03', '04', '05', '06', '07')
+  -- Filter: Active pipeline stages 00-08 (08 = "08 - Closed", i.e. Won), plus explicitly-Lost opps
+  AND (
+    SUBSTRING(dim.OPPORTUNITY_STAGE_NAME, 1, 2) IN ('00', '01', '02', '03', '04', '05', '06', '07', '08')
+    OR dim.OPPORTUNITY_STAGE_NAME = 'Lost'
+  )${scopeSql}
 
 ORDER BY stg.NAME
 `;
