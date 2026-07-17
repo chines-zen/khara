@@ -11,13 +11,15 @@ function formatLastRefreshed(iso: string | undefined) {
   if (isNaN(d.getTime())) return "—";
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}/${dd} ${hh}:${min}`;
+  const hours24 = d.getHours();
+  const period = hours24 >= 12 ? "PM" : "AM";
+  const hh = String(hours24 % 12 || 12).padStart(2, "0");
+  return `${mm}/${dd} ${hh}:${min} ${period}`;
 }
 
 export function AppNav() {
-  const linkBase = "px-3 py-1 text-xs font-medium";
+  const linkBase = "px-[15px] py-[5px] text-[15px] font-medium";
   const preferredName = usePreferredName();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -45,12 +47,12 @@ export function AppNav() {
   };
 
   return (
-    <nav className="h-12 bg-zd-dark flex items-center px-4 justify-between sticky top-0 z-50">
-      <div className="flex items-center gap-6">
-        <div className="h-6 px-1.5 bg-zd-green rounded-sm flex items-center justify-center font-bold text-zd-dark text-[9px] italic tracking-tight">
+    <nav className="h-[60px] bg-zd-dark flex items-center px-5 justify-between sticky top-0 z-50">
+      <div className="flex items-center gap-[30px]">
+        <div className="h-[30px] px-[7.5px] bg-zd-green rounded-sm flex items-center justify-center font-bold text-zd-dark text-[11px] italic tracking-tight">
           KHARA
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-[5px]">
           <Link
             to="/opportunities"
             className={`${linkBase} text-white/70 hover:text-white`}
@@ -68,8 +70,8 @@ export function AppNav() {
           </Link>
         </div>
       </div>
-      <div className="flex items-center gap-3">
-        <span className="text-white/50 text-[11px] font-mono" title="Last refreshed">
+      <div className="flex items-center gap-[15px]">
+        <span className="text-white/50 text-[14px] font-mono" title="Last refreshed">
           {lastRefreshed}
         </span>
         <button
@@ -80,7 +82,7 @@ export function AppNav() {
           title="Refresh Data"
           className="text-white/70 hover:text-white transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`size-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`size-5 ${isRefreshing ? "animate-spin" : ""}`} />
         </button>
         <Link
           to="/settings"
@@ -88,9 +90,9 @@ export function AppNav() {
           className="text-white/70 hover:text-white transition-colors"
           activeProps={{ className: "text-zd-green" }}
         >
-          <Settings className="size-4" />
+          <Settings className="size-5" />
         </Link>
-        <span className="text-white/80 text-xs font-medium">
+        <span className="text-white/80 text-[15px] font-medium">
           {preferredName ? `Hi, ${preferredName}!` : "Hi there!"}
         </span>
 
