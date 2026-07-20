@@ -16,6 +16,7 @@ import { type Opportunity } from "@/lib/opportunities";
 import { KpiCard } from "@/components/opportunities/KpiCard";
 import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
+import { sfRecordUrl } from "@/lib/sfdc";
 import {
   DashboardFilterBar,
   DEFAULT_DASHBOARD_FILTERS,
@@ -25,12 +26,12 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — SE Opp Rigor" },
+      { title: "Dash — KHARA" },
       {
         name: "description",
         content: "Pipeline health overview with key sales KPIs.",
       },
-      { property: "og:title", content: "Dashboard — SE Opp Rigor" },
+      { property: "og:title", content: "Dash — KHARA" },
       {
         property: "og:description",
         content: "Pipeline health overview with key sales KPIs.",
@@ -61,9 +62,6 @@ const fmtDate = (iso: string) => {
   });
 };
 
-
-const sfRecordUrl = (id: string) =>
-  `https://zendesk.lightning.force.com/lightning/r/Opportunity/${id}/view`;
 
 function applyFilters(opportunities: Opportunity[], filters: DashboardFilters): Opportunity[] {
   const minArr = filters.arrMin === "" ? null : Number(filters.arrMin);

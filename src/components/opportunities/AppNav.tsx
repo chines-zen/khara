@@ -1,9 +1,16 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Settings, RefreshCw } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePreferredName, useTimezone } from "@/lib/preferences";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
+import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
+import { fetchUserPreference } from "@/lib/api/user-preferences";
+import {
+  buildPunchList,
+  DEFAULT_PUNCH_LIST_SETTINGS,
+  type PunchListSettings,
+} from "@/lib/punch-list";
 
 function formatLastRefreshed(iso: string | undefined, timezone: string) {
   if (!iso) return "—";
@@ -27,6 +34,15 @@ export function AppNav() {
   const timezone = useTimezone();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
+    DEFAULT_PUNCH_LIST_SETTINGS,
+  );
+
+  useEffect(() => {
+    fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
+      if (saved) setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
+    });
+  }, []);
 
   // Observes the shared ["opportunities"] cache populated by whichever page is mounted;
   // enabled: false means this never fetches on its own.
@@ -36,6 +52,16 @@ export function AppNav() {
     enabled: false,
   });
   const lastRefreshed = formatLastRefreshed(data?.metadata?.cachedAt, timezone);
+
+  const { data: hiddenIds = [] } = useQuery({
+    queryKey: ["hiddenOpportunities"],
+    queryFn: fetchHiddenOpportunities,
+  });
+
+  const punchListCount = useMemo(
+    () => buildPunchList(data?.opportunities ?? [], hiddenIds, punchListSettings).length,
+    [data?.opportunities, hiddenIds, punchListSettings],
+  );
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -58,13 +84,6 @@ export function AppNav() {
         </div>
         <div className="flex gap-[5px]">
           <Link
-            to="/opportunities"
-            className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{ className: `${linkBase} text-white border-b-2 border-zd-green` }}
-          >
-            Opportunities
-          </Link>
-          <Link
             to="/"
             activeOptions={{ exact: true }}
             className={`${linkBase} text-white/70 hover:text-white`}
@@ -72,11 +91,29 @@ export function AppNav() {
           >
             Dashboard
           </Link>
+          <Link
+            to="/opportunities"
+            className={`${linkBase} text-white/70 hover:text-white`}
+            activeProps={{ className: `${linkBase} text-white border-b-2 border-zd-green` }}
+          >
+            Opportunities
+          </Link>
+          <Link
+            to="/punch-list"
+            className={`${linkBase} text-white/70 hover:text-white`}
+            activeProps={{ className: `${linkBase} text-white border-b-2 border-zd-green` }}
+          >
+            Punch List{punchListCount > 0 ? ` (${punchListCount})` : ""}
+          </Link>
         </div>
       </div>
       <div className="flex items-center gap-[15px]">
-        <span className="text-white/50 text-[14px] font-mono" title="Last refreshed">
-          {lastRefreshed}
+        <span
+          className="text-white/50 text-[12px] font-mono leading-tight flex flex-col items-end"
+          title="Last refreshed"
+        >
+          <span>Last Data Sync</span>
+          <span>{lastRefreshed}</span>
         </span>
         <button
           type="button"

@@ -36,16 +36,23 @@ const SORT_LABELS: Record<SortOption, string> = {
 };
 
 
+type OpportunitiesSearch = {
+  oppId?: string;
+};
+
 export const Route = createFileRoute("/opportunities")({
+  validateSearch: (search: Record<string, unknown>): OpportunitiesSearch => ({
+    oppId: typeof search.oppId === "string" ? search.oppId : undefined,
+  }),
   head: () => ({
     meta: [
-      { title: "Opportunities — SE Opp Rigor" },
+      { title: "Opps — KHARA" },
       {
         name: "description",
         content:
           "Review, filter, and dive into your sales opportunity pipeline with D-Score health signals.",
       },
-      { property: "og:title", content: "Opportunities — SE Opp Rigor" },
+      { property: "og:title", content: "Opps — KHARA" },
       {
         property: "og:description",
         content:
@@ -121,6 +128,7 @@ function applyFilters(opportunities: typeof OPPORTUNITIES, filters: Filters) {
 }
 
 function OpportunitiesPage() {
+  const { oppId } = Route.useSearch();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showDisclaimer, setShowDisclaimer] = useState(true);
@@ -264,9 +272,12 @@ function OpportunitiesPage() {
     return list;
   }, [filtered, sortBy]);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(oppId ?? null);
   const selected =
-    sorted.find((o) => o.id === selectedId) ?? sorted[0] ?? null;
+    sorted.find((o) => o.id === selectedId) ??
+    allOpportunities.find((o) => o.id === selectedId) ??
+    sorted[0] ??
+    null;
 
 
   if (scNotFoundError) {

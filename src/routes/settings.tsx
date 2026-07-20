@@ -12,6 +12,10 @@ import {
   DEFAULT_ARR_THRESHOLD,
   type OppScopeSettings,
 } from "@/components/opportunities/OppScopeOnboardingDialog";
+import {
+  DEFAULT_PUNCH_LIST_SETTINGS,
+  type PunchListSettings,
+} from "@/lib/punch-list";
 
 const TIMEZONE_OPTIONS = [
   { value: "America/Los_Angeles", label: "Pacific Time (US & Canada)" },
@@ -34,7 +38,7 @@ const BROWSER_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — SE Opp Rigor" },
+      { title: "Settings — KHARA" },
       { name: "description", content: "Manage your personal preferences." },
     ],
   }),
@@ -60,6 +64,11 @@ function SettingsPage() {
   const [devEmail, setDevEmail] = useState("");
   const [devEmailSwitched, setDevEmailSwitched] = useState(false);
 
+  const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
+    DEFAULT_PUNCH_LIST_SETTINGS,
+  );
+  const [punchListSaved, setPunchListSaved] = useState(false);
+
   useEffect(() => {
     fetchUserPreference<string>("preferredName").then((savedName) => {
       if (savedName) setPreferredNameState(savedName);
@@ -83,6 +92,12 @@ function SettingsPage() {
       } else {
         setUseRecommendedRange(true);
       }
+    });
+  }, []);
+
+  useEffect(() => {
+    fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
+      if (saved) setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
     });
   }, []);
 
@@ -121,6 +136,14 @@ function SettingsPage() {
     queryClient.invalidateQueries({ queryKey: ["opportunities"] });
     setScopeSaved(true);
     setTimeout(() => setScopeSaved(false), 2000);
+  };
+
+  const handlePunchListSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveUserPreference("punchListSettings", punchListSettings);
+    queryClient.invalidateQueries({ queryKey: ["punchListSettings"] });
+    setPunchListSaved(true);
+    setTimeout(() => setPunchListSaved(false), 2000);
   };
 
   const handleDevEmailSwitch = async (e: React.FormEvent) => {
@@ -271,6 +294,118 @@ function SettingsPage() {
 
           <div className="pt-2 flex items-center justify-end gap-3">
             {scopeSaved && (
+              <span className="text-xs text-zd-green font-semibold">Saved</span>
+            )}
+            <button
+              type="submit"
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+
+        <form
+          onSubmit={handlePunchListSubmit}
+          className="bg-white border border-zd-border rounded p-6 space-y-5"
+        >
+          <h2 className="text-sm font-semibold text-zd-dark">Punch List Criteria</h2>
+          <p className="text-[11px] text-zd-teal/70">
+            Choose which criteria flag an opportunity on your Punch List.
+          </p>
+
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={punchListSettings.staleNotesEnabled}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    staleNotesEnabled: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>Notes not updated in</span>
+              <input
+                type="number"
+                min={1}
+                value={punchListSettings.staleNotesDays}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    staleNotesDays: Number(e.target.value) || 1,
+                  })
+                }
+                className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+              />
+              <span>+ days</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={punchListSettings.noScNotesEnabled}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    noScNotesEnabled: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>No SC notes</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={punchListSettings.noEngagementTypeEnabled}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    noEngagementTypeEnabled: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>No SC engagement type</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={punchListSettings.includeHiddenOpps}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    includeHiddenOpps: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>Include hidden opps</span>
+            </label>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={punchListSettings.includeClosedOpps}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    includeClosedOpps: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>Show closed opps (Won/Lost)</span>
+            </label>
+          </div>
+
+          <div className="pt-2 flex items-center justify-end gap-3">
+            {punchListSaved && (
               <span className="text-xs text-zd-green font-semibold">Saved</span>
             )}
             <button

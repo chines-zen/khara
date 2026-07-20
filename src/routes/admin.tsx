@@ -17,7 +17,7 @@ async function fetchStats() {
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "Admin — SE Opp Rigor" },
+      { title: "Admin — KHARA" },
       { name: "description", content: "System health and statistics" },
     ],
   }),

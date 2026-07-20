@@ -3,6 +3,7 @@ import { AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Opportunity } from "@/lib/opportunities";
 import { formatDisplayDate } from "@/lib/utils";
+import { sfRecordUrl } from "@/lib/sfdc";
 
 const fmt = (n: number) => `$${n.toLocaleString()}`;
 
@@ -198,7 +199,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
               <span className="text-sm text-zd-dark">Hide Opp</span>
             </label>
             <a
-              href={`https://zendesk.lightning.force.com/lightning/r/Opportunity/${opp.id}/view`}
+              href={sfRecordUrl(opp.id)}
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 bg-zd-teal text-white text-xs font-bold rounded hover:bg-zd-dark transition-colors shadow-sm"

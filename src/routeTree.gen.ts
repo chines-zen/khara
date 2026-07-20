@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PunchListRouteImport } from './routes/punch-list'
 import { Route as OpportunitiesRouteImport } from './routes/opportunities'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -17,6 +18,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PunchListRoute = PunchListRouteImport.update({
+  id: '/punch-list',
+  path: '/punch-list',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OpportunitiesRoute = OpportunitiesRouteImport.update({
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/opportunities': typeof OpportunitiesRoute
+  '/punch-list': typeof PunchListRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/opportunities': typeof OpportunitiesRoute
+  '/punch-list': typeof PunchListRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
@@ -52,20 +60,28 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/opportunities': typeof OpportunitiesRoute
+  '/punch-list': typeof PunchListRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/opportunities' | '/settings'
+  fullPaths: '/' | '/admin' | '/opportunities' | '/punch-list' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/opportunities' | '/settings'
-  id: '__root__' | '/' | '/admin' | '/opportunities' | '/settings'
+  to: '/' | '/admin' | '/opportunities' | '/punch-list' | '/settings'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/opportunities'
+    | '/punch-list'
+    | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   OpportunitiesRoute: typeof OpportunitiesRoute
+  PunchListRoute: typeof PunchListRoute
   SettingsRoute: typeof SettingsRoute
 }
 
@@ -76,6 +92,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/punch-list': {
+      id: '/punch-list'
+      path: '/punch-list'
+      fullPath: '/punch-list'
+      preLoaderRoute: typeof PunchListRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/opportunities': {
@@ -106,6 +129,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   OpportunitiesRoute: OpportunitiesRoute,
+  PunchListRoute: PunchListRoute,
   SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport
