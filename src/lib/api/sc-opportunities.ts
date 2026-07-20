@@ -24,7 +24,8 @@ export async function fetchOpportunities(): Promise<ScOpportunitiesResponse> {
   }
 
   if (!response.ok) {
-    throw new Error("Failed to fetch opportunities");
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.details || data?.error || "Failed to fetch opportunities");
   }
 
   return response.json();

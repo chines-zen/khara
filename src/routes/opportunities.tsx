@@ -144,6 +144,8 @@ function OpportunitiesPage() {
   const allOpportunities = loaderOpportunities?.opportunities ?? [];
   const scNotFoundError =
     isError && opportunitiesError instanceof ScUserNotFoundError ? opportunitiesError : null;
+  const fetchError =
+    isError && !(opportunitiesError instanceof ScUserNotFoundError) ? opportunitiesError : null;
 
   // Fetch hidden opportunity IDs
   const {
@@ -274,6 +276,22 @@ function OpportunitiesPage() {
         <main className="p-6">
           <div className="bg-white border border-zd-border rounded p-8 text-center text-sm text-zd-teal/70">
             {scNotFoundError.message}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
+        <AppNav />
+        <main className="p-6">
+          <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
+            Failed to load opportunities: {fetchError.message}
+            <div className="mt-1 text-red-500/70">
+              Try refreshing. If this persists, the Snowflake connection may need to be restarted.
+            </div>
           </div>
         </main>
       </div>

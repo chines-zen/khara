@@ -145,7 +145,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
 
 function DashboardPage() {
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_DASHBOARD_FILTERS);
-  const { data: loaderOpportunities } = useQuery({
+  const { data: loaderOpportunities, isError, error: opportunitiesError } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
     retry: false,
@@ -172,6 +172,22 @@ function DashboardPage() {
 
   const chartData = useMemo(() => buildChartData(filtered), [filtered]);
   const oppIds = useMemo(() => filtered.map((o) => o.id), [filtered]);
+
+  if (isError) {
+    return (
+      <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 min-h-screen">
+        <AppNav />
+        <main className="p-6">
+          <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
+            Failed to load opportunities: {opportunitiesError.message}
+            <div className="mt-1 text-red-500/70">
+              Try refreshing. If this persists, the Snowflake connection may need to be restarted.
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">

@@ -2,9 +2,18 @@ import snowflake from 'snowflake-sdk';
 
 let connection = null;
 let connecting = null;
+let lastError = null;
 
 export function getSnowflakeConfig() {
   return getConfig();
+}
+
+export function isSnowflakeConnected() {
+  return connection !== null;
+}
+
+export function getSnowflakeLastError() {
+  return lastError;
 }
 
 function getConfig() {
@@ -53,10 +62,12 @@ export async function connectToSnowflake() {
     conn.connect((err, connected) => {
       connecting = null;
       if (err) {
+        lastError = err.message;
         reject(err);
         return;
       }
       connection = connected;
+      lastError = null;
       resolve(connected);
     });
   });
@@ -72,6 +83,11 @@ export async function executeQuery(sql, binds) {
       binds,
       complete: (err, _stmt, rows) => {
         if (err) {
+          // The cached connection may be dead (e.g. an expired SSO session
+          // over an idle weekend). Drop it so the next request re-authenticates
+          // instead of repeatedly failing against the same stale handle.
+          connection = null;
+          lastError = err.message;
           reject(err);
           return;
         }

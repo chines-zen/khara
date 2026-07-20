@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
 
 // Snowflake imports
-import { connectToSnowflake, executeQuery } from './snowflake-connection.js';
+import { connectToSnowflake, executeQuery, isSnowflakeConnected, getSnowflakeLastError } from './snowflake-connection.js';
 import {
   buildOpportunitiesQuery,
   buildOwnersQuery,
@@ -40,8 +40,6 @@ const PORT = process.env.PORT || 8080;
 // INITIALIZATION
 // ============================================================================
 
-let snowflakeConnected = false;
-let snowflakeLastError = null;
 let databaseConnected = false;
 
 const SNOWFLAKE_RETRY_INTERVAL_MS = 30_000;
@@ -66,13 +64,9 @@ initializeDatabase()
 function connectToSnowflakeWithRetry() {
   connectToSnowflake()
     .then(() => {
-      snowflakeConnected = true;
-      snowflakeLastError = null;
       console.log('✅ Snowflake connection established');
     })
     .catch((err) => {
-      snowflakeConnected = false;
-      snowflakeLastError = err.message;
       console.error('❌ Failed to connect to Snowflake:', err.message);
       console.error(`   Retrying in ${SNOWFLAKE_RETRY_INTERVAL_MS / 1000}s. API calls will fail until connected.`);
       setTimeout(connectToSnowflakeWithRetry, SNOWFLAKE_RETRY_INTERVAL_MS);
@@ -190,9 +184,9 @@ app.get('/api/health', async (req, res) => {
 
   res.json({
     snowflake: {
-      status: snowflakeConnected ? 'connected' : 'disconnected',
+      status: isSnowflakeConnected() ? 'connected' : 'disconnected',
       database: 'Snowflake',
-      lastError: snowflakeConnected ? null : snowflakeLastError,
+      lastError: isSnowflakeConnected() ? null : getSnowflakeLastError(),
     },
     postgresql: dbHealth,
     devMode: process.env.DEV_MODE === 'true',
@@ -264,10 +258,6 @@ app.use('/api/user-preferences', authenticateWithPomerium, preferencesRouter);
 // POST /api/opportunities - Get filtered opportunities, scoped to the logged-in SC
 app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
   try {
-    if (!snowflakeConnected) {
-      return res.status(503).json({ error: 'Snowflake connection not established' });
-    }
-
     if (!databaseConnected) {
       return res.status(503).json({ error: 'Database connection not established' });
     }
@@ -311,11 +301,6 @@ app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
 app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, res) => {
   console.log('📥 GET /api/opportunities/my-sc-opps - Request received');
   try {
-    if (!snowflakeConnected) {
-      console.log('❌ Snowflake not connected');
-      return res.status(503).json({ error: 'Snowflake connection not established' });
-    }
-
     if (!databaseConnected) {
       console.log('❌ Database not connected');
       return res.status(503).json({ error: 'Database connection not established' });
@@ -376,10 +361,6 @@ app.delete('/api/opportunities/my-sc-opps/cache', authenticateWithPomerium, asyn
 // Query param: ?regenerate=true to force regenerate
 app.get('/api/opportunities/:id/summary', authenticateWithPomerium, async (req, res) => {
   try {
-    if (!snowflakeConnected) {
-      return res.status(503).json({ error: 'Snowflake connection not established' });
-    }
-
     if (!databaseConnected) {
       return res.status(503).json({ error: 'Database connection not established' });
     }
@@ -429,10 +410,6 @@ app.get('/api/opportunities/:id/summary', authenticateWithPomerium, async (req, 
 // GET /api/owners - Get unique owners
 app.get('/api/owners', authenticateWithPomerium, async (req, res) => {
   try {
-    if (!snowflakeConnected) {
-      return res.status(503).json({ error: 'Snowflake connection not established' });
-    }
-
     const sql = buildOwnersQuery();
     const rows = await executeQuery(sql);
 
@@ -447,10 +424,6 @@ app.get('/api/owners', authenticateWithPomerium, async (req, res) => {
 // GET /api/close-months - Get available close months
 app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
   try {
-    if (!snowflakeConnected) {
-      return res.status(503).json({ error: 'Snowflake connection not established' });
-    }
-
     const sql = buildCloseMonthsQuery();
     const rows = await executeQuery(sql);
 
@@ -465,10 +438,6 @@ app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
 // GET /api/stats - Get aggregate stats
 app.get('/api/stats', authenticateWithPomerium, async (req, res) => {
   try {
-    if (!snowflakeConnected) {
-      return res.status(503).json({ error: 'Snowflake connection not established' });
-    }
-
     const sql = buildStatsQuery();
     const rows = await executeQuery(sql);
 
