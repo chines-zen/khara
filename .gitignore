@@ -48,6 +48,8 @@ lerna-debug.log*
 *.tmp
 *.temp
 .cache/
+discoveries/
+
 
 # Snowflake credentials (extra safety)
 snowflake-credentials.*

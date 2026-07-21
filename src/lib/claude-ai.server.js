@@ -1,13 +1,4 @@
-import { VertexAI } from '@google-cloud/vertexai';
-
-const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'it-ai-exploration';
-const LOCATION = process.env.GOOGLE_CLOUD_LOCATION || 'global';
-const MODEL_NAME = 'gemini-3-flash-preview'; // Fast model for summaries
-
-const vertexAI = new VertexAI({
-  project: PROJECT_ID,
-  location: LOCATION,
-});
+const MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
 
 /**
  * @typedef {Object} SummaryRequest
@@ -26,18 +17,23 @@ const vertexAI = new VertexAI({
  */
 
 /**
- * Generate an AI summary for an opportunity
+ * Generate an AI summary for an opportunity via Zendesk's internal
+ * AI gateway (Bedrock-compatible, bearer-token authenticated).
  * @param {SummaryRequest} opp
  * @returns {Promise<string>}
  */
 export async function generateOpportunitySummary(opp) {
-  const model = vertexAI.preview.getGenerativeModel({
-    model: MODEL_NAME,
-  });
+  const endpoint = process.env.AWS_ENDPOINT_URL_BEDROCK_RUNTIME;
+  const token = process.env.AWS_BEARER_TOKEN_BEDROCK;
+
+  if (!endpoint || !token) {
+    throw new Error('AWS_ENDPOINT_URL_BEDROCK_RUNTIME / AWS_BEARER_TOKEN_BEDROCK are not configured');
+  }
 
   const prompt = `You are a sales operations analyst. Generate a concise 3-5 sentence summary of this sales opportunity. Focus on:
 - Current status and key risks
 - Stakeholder engagement and next steps
+- Discrepancies between the SC notes and AE next steps
 - Timeline concerns (if stuck in a stage for a long time)
 - Any compelling events or blockers mentioned in notes
 
@@ -67,7 +63,25 @@ ${opp.productSpecialistNotes}
 
 Provide only the summary text, no preamble.`;
 
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  return response.candidates[0].content.parts[0].text;
+  const response = await fetch(`${endpoint}/model/${MODEL_ID}/invoke`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`AI gateway request failed (${response.status}): ${body}`);
+  }
+
+  const data = await response.json();
+  const textBlock = data.content?.find((block) => block.type === 'text');
+  return textBlock?.text ?? '';
 }

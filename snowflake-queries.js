@@ -217,6 +217,17 @@ WHERE dim.RUN_DATE = (
 }
 
 /**
+ * Build query for the most recent Snowflake data refresh (RUN_DATE), the
+ * same recency marker the opportunities queries filter on.
+ */
+export function buildSnowflakeFreshnessQuery() {
+  return `
+SELECT MAX(RUN_DATE) AS last_run_date
+FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
+`;
+}
+
+/**
  * Build query for getting unique owners
  */
 export function buildOwnersQuery() {
@@ -421,10 +432,11 @@ LEFT JOIN (
 
 /**
  * Build SQL query for SC-specific opportunities (active pipeline stages 00-08 plus Lost)
- * @param {string} snowflakeUserId - USER_ID from USER_HISTORY table
+ * @param {string | string[]} snowflakeUserIds - USER_ID(s) from USER_HISTORY table. A manager
+ *   scoping to their team's SCs (see Sales Engineers setting) passes multiple IDs here.
  * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
  */
-export function buildScOpportunitiesQuery(snowflakeUserId, scope = {}) {
+export function buildScOpportunitiesQuery(snowflakeUserIds, scope = {}) {
   // Local dev override: ignore SC identity, stage, and ARR/close-date scoping
   // and pull only the fixed TEST_OPP_IDS set (see services/test-opps.js)
   if (isTestOppsEnabled()) {
@@ -441,7 +453,8 @@ ORDER BY stg.NAME
 `;
   }
 
-  const userIdEscaped = snowflakeUserId.replace(/'/g, "''");
+  const userIds = Array.isArray(snowflakeUserIds) ? snowflakeUserIds : [snowflakeUserIds];
+  const userIdList = userIds.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
   const { arrThreshold, closeDateFrom, closeDateTo } = scope;
 
   const scopeConditions = [];
@@ -464,8 +477,8 @@ WHERE dim.RUN_DATE = (
     SELECT MAX(RUN_DATE)
     FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
 )
-  -- Filter: Only this SC's opportunities
-  AND stg.NAME_OF_SC_C = '${userIdEscaped}'
+  -- Filter: Only these SCs' opportunities
+  AND stg.NAME_OF_SC_C IN (${userIdList})
   -- Filter: Active pipeline stages 00-08 (08 = "08 - Closed", i.e. Won), plus explicitly-Lost opps
   AND (
     SUBSTRING(dim.OPPORTUNITY_STAGE_NAME, 1, 2) IN ('00', '01', '02', '03', '04', '05', '06', '07', '08')

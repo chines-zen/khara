@@ -12,6 +12,7 @@ export type OppScopeSettings = {
   arrThreshold: number;
   closeDateFrom: string | null;
   closeDateTo: string | null;
+  scEmails?: string[];
 };
 
 export const DEFAULT_ARR_THRESHOLD = 50000;

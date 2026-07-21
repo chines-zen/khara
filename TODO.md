@@ -4,12 +4,12 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ## Now
 
-- [ ] Fix AI summary (include token handling)
-- [ ] build pom auth bypass for local use (flag outisde of dev mode)
-- [ ] add "Last Data Sync:"
-- [ ] Admin Panel: button from settings, adjust data shown
+- [~] Fix AI summary (include token handling)
+- [x] build pom auth bypass for local use (flag outisde of dev mode)
+- [x] add "Last Data Sync:"
 
 ## Next
+- [] Dark Mode
 
 
 

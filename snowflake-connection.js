@@ -1,35 +1,61 @@
 import snowflake from 'snowflake-sdk';
 
-let connection = null;
-let connecting = null;
-let lastError = null;
+const SERVICE_ACCOUNT_KEY = 'service-account';
 
-export function getSnowflakeConfig() {
-  return getConfig();
+// Keyed by identity (email in EXTERNALBROWSER mode, SERVICE_ACCOUNT_KEY otherwise)
+// so each user's SSO session is cached separately instead of sharing one connection.
+const connections = new Map();
+const connecting = new Map();
+const lastErrors = new Map();
+
+function isServiceAccountMode() {
+  return Boolean(process.env.SNOWFLAKE_USERNAME && process.env.SNOWFLAKE_PASSWORD);
 }
 
-export function isSnowflakeConnected() {
-  return connection !== null;
+function resolveKey(email) {
+  if (isServiceAccountMode()) {
+    return SERVICE_ACCOUNT_KEY;
+  }
+
+  if (!email) {
+    throw new Error('Snowflake is configured for EXTERNALBROWSER auth; an email is required to establish a per-user connection');
+  }
+
+  return email;
 }
 
-export function getSnowflakeLastError() {
-  return lastError;
+export function getSnowflakeConfig(email) {
+  return getConfig(email);
 }
 
-function getConfig() {
+// Status checks tolerate a missing email (e.g. the public /api/health probe,
+// which has no logged-in user yet) by reporting "not connected" rather than throwing.
+export function isSnowflakeConnected(email) {
+  if (!isServiceAccountMode() && !email) {
+    return false;
+  }
+  return connections.has(resolveKey(email));
+}
+
+export function getSnowflakeLastError(email) {
+  if (!isServiceAccountMode() && !email) {
+    return null;
+  }
+  return lastErrors.get(resolveKey(email)) ?? null;
+}
+
+function getConfig(email) {
   const account = process.env.SNOWFLAKE_ACCOUNT;
-  const username = process.env.SNOWFLAKE_USERNAME;
-  const password = process.env.SNOWFLAKE_PASSWORD;
   const warehouse = process.env.SNOWFLAKE_WAREHOUSE;
   const database = process.env.SNOWFLAKE_DATABASE;
   const schema = process.env.SNOWFLAKE_SCHEMA;
   const role = process.env.SNOWFLAKE_ROLE;
 
-  if (username && password) {
+  if (isServiceAccountMode()) {
     return {
       account,
-      username,
-      password,
+      username: process.env.SNOWFLAKE_USERNAME,
+      password: process.env.SNOWFLAKE_PASSWORD,
       authenticator: 'SNOWFLAKE',
       warehouse,
       database,
@@ -40,6 +66,7 @@ function getConfig() {
 
   return {
     account,
+    username: email,
     authenticator: 'EXTERNALBROWSER',
     warehouse,
     database,
@@ -48,35 +75,41 @@ function getConfig() {
   };
 }
 
-export async function connectToSnowflake() {
-  if (connection) {
-    return connection;
+export async function connectToSnowflake(email) {
+  const key = resolveKey(email);
+
+  const existing = connections.get(key);
+  if (existing) {
+    return existing;
   }
 
-  if (connecting) {
-    return connecting;
+  const inFlight = connecting.get(key);
+  if (inFlight) {
+    return inFlight;
   }
 
-  connecting = new Promise((resolve, reject) => {
-    const conn = snowflake.createConnection(getConfig());
+  const promise = new Promise((resolve, reject) => {
+    const conn = snowflake.createConnection(getConfig(email));
     conn.connect((err, connected) => {
-      connecting = null;
+      connecting.delete(key);
       if (err) {
-        lastError = err.message;
+        lastErrors.set(key, err.message);
         reject(err);
         return;
       }
-      connection = connected;
-      lastError = null;
+      connections.set(key, connected);
+      lastErrors.delete(key);
       resolve(connected);
     });
   });
 
-  return connecting;
+  connecting.set(key, promise);
+  return promise;
 }
 
-export async function executeQuery(sql, binds) {
-  const conn = await connectToSnowflake();
+export async function executeQuery(sql, binds, email) {
+  const key = resolveKey(email);
+  const conn = await connectToSnowflake(email);
   return new Promise((resolve, reject) => {
     conn.execute({
       sqlText: sql,
@@ -86,8 +119,8 @@ export async function executeQuery(sql, binds) {
           // The cached connection may be dead (e.g. an expired SSO session
           // over an idle weekend). Drop it so the next request re-authenticates
           // instead of repeatedly failing against the same stale handle.
-          connection = null;
-          lastError = err.message;
+          connections.delete(key);
+          lastErrors.set(key, err.message);
           reject(err);
           return;
         }
@@ -97,13 +130,15 @@ export async function executeQuery(sql, binds) {
   });
 }
 
-export async function closeConnection() {
-  if (!connection) {
+export async function closeConnection(email) {
+  const key = resolveKey(email);
+  const conn = connections.get(key);
+  if (!conn) {
     return;
   }
 
   await new Promise((resolve) => {
-    connection.destroy((err) => {
+    conn.destroy((err) => {
       if (err) {
         console.error('Failed to close Snowflake connection:', err);
       }
@@ -111,5 +146,5 @@ export async function closeConnection() {
     });
   });
 
-  connection = null;
+  connections.delete(key);
 }

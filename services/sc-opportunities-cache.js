@@ -1,7 +1,7 @@
 import { pool } from '../db/index.js';
 import { executeQuery } from '../snowflake-connection.js';
 import { buildScOpportunitiesQuery } from '../snowflake-queries.js';
-import { resolveScUserId } from './sc-lookup.js';
+import { resolveScUserId, resolveScUserIds } from './sc-lookup.js';
 
 const CACHE_TTL_HOURS = 12;
 
@@ -9,7 +9,9 @@ const CACHE_TTL_HOURS = 12;
  * Get opportunities for SC user (with 12-hour cache)
  * @param {number} userId - PostgreSQL user ID
  * @param {string} userEmail - Email for Snowflake lookup
- * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
+ * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string, scEmails?: string[] }} [scope]
+ *   scEmails (manager-only): when set, opportunities are scoped to these SCs
+ *   instead of userEmail's own identity.
  */
 export async function getScOpportunities(userId, userEmail, scope = {}) {
   console.log(`[SC Cache] Checking cache for user ${userId} (${userEmail})`);
@@ -60,23 +62,35 @@ async function getCachedScOpportunities(userId) {
 }
 
 async function fetchScOpportunitiesFromSnowflake(userEmail, scope = {}) {
-  // Step 1: Look up Snowflake USER_ID from email
-  const scUser = await resolveScUserId(userEmail);
+  const { scEmails = [] } = scope;
 
-  if (!scUser) {
-    throw new Error(`No Snowflake user found for email: ${userEmail}`);
+  // Step 1: Resolve Snowflake USER_ID(s). Manager scoping (scEmails set) resolves
+  // those SCs' identities instead of the logged-in user's own.
+  let snowflakeUserIds;
+  if (scEmails.length > 0) {
+    snowflakeUserIds = await resolveScUserIds(scEmails, userEmail);
+
+    if (snowflakeUserIds.length === 0) {
+      throw new Error(`No Snowflake user found for any of: ${scEmails.join(', ')}`);
+    }
+  } else {
+    const scUser = await resolveScUserId(userEmail);
+
+    if (!scUser) {
+      throw new Error(`No Snowflake user found for email: ${userEmail}`);
+    }
+
+    snowflakeUserIds = [scUser.userId];
   }
 
-  const snowflakeUserId = scUser.userId;
-
-  // Step 2: Query opportunities where this user is SC, scoped by stage + ARR/close-date
-  const oppSql = buildScOpportunitiesQuery(snowflakeUserId, scope);
-  const oppRows = await executeQuery(oppSql);
+  // Step 2: Query opportunities where these users are SC, scoped by stage + ARR/close-date
+  const oppSql = buildScOpportunitiesQuery(snowflakeUserIds, scope);
+  const oppRows = await executeQuery(oppSql, undefined, userEmail);
 
   // Step 3: Transform to frontend format
   const opportunities = oppRows.map(transformOpportunity);
 
-  return { snowflakeUserId, opportunities };
+  return { snowflakeUserId: snowflakeUserIds.join(','), opportunities };
 }
 
 async function cacheScOpportunities(userId, snowflakeUserId, opportunities) {
@@ -94,6 +108,15 @@ async function cacheScOpportunities(userId, snowflakeUserId, opportunities) {
   `;
 
   await pool.query(query, [userId, snowflakeUserId, JSON.stringify(opportunities), expiresAt]);
+}
+
+/**
+ * Most recent cache write across all users - i.e. when the app last synced
+ * opportunity data from Snowflake.
+ */
+export async function getLastScCacheSync() {
+  const result = await pool.query('SELECT MAX(cached_at) AS last_cached_at FROM sc_opportunities_cache');
+  return result.rows[0]?.last_cached_at ?? null;
 }
 
 /**

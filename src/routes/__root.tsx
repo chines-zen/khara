@@ -1,6 +1,7 @@
 import "../styles.css";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -8,6 +9,7 @@ import {
   useRouter,
   HeadContent,
 } from "@tanstack/react-router";
+import { EmailCaptureDialog } from "@/components/opportunities/EmailCaptureDialog";
 
 function NotFoundComponent() {
   return (
@@ -89,7 +91,61 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <HeadContent />
+      <EmailSetupGate />
       <Outlet />
     </QueryClientProvider>
   );
+}
+
+// DEV_MODE only: blocks the app behind a first-use email capture dialog until
+// a real email has been provided (see needsEmailSetup in middleware/auth.js).
+function EmailSetupGate() {
+  const queryClient = useQueryClient();
+  const [devMode, setDevMode] = useState(false);
+  const [needsEmailSetup, setNeedsEmailSetup] = useState(false);
+
+  const refreshMe = () => {
+    fetch("/api/health", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((health) => {
+        if (!health?.devMode) {
+          setDevMode(false);
+          setNeedsEmailSetup(false);
+          return;
+        }
+        setDevMode(true);
+        return fetch("/api/me", { credentials: "include" })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((me) => setNeedsEmailSetup(Boolean(me?.needsEmailSetup)));
+      })
+      .catch(() => {
+        setDevMode(false);
+        setNeedsEmailSetup(false);
+      });
+  };
+
+  useEffect(() => {
+    refreshMe();
+  }, []);
+
+  const handleSave = async (email: string) => {
+    const response = await fetch("/api/dev/session-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.details || data?.error || "Failed to connect to Snowflake");
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+    refreshMe();
+  };
+
+  if (!devMode) return null;
+
+  return <EmailCaptureDialog open={needsEmailSetup} onSave={handleSave} />;
 }

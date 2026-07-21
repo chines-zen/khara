@@ -13,6 +13,7 @@ import {
   buildCloseMonthsQuery,
   buildStatsQuery,
   buildScOpportunitiesQuery,
+  buildSnowflakeFreshnessQuery,
 } from './snowflake-queries.js';
 
 // Database and auth
@@ -21,9 +22,9 @@ import { authenticateWithPomerium } from './middleware/auth.js';
 import { createSessionMiddleware } from './middleware/session.js';
 
 // Services
-import { getCachedSummary, cleanupExpiredSummaries } from './services/summary-cache.js';
+import { getCachedSummary, getSummaryIfCached, cleanupExpiredSummaries } from './services/summary-cache.js';
 import { getHiddenOpportunities, hideOpportunity, unhideOpportunity } from './services/hidden-opportunities.js';
-import { getScOpportunities, invalidateScCache, cleanupExpiredScCache } from './services/sc-opportunities-cache.js';
+import { getScOpportunities, invalidateScCache, cleanupExpiredScCache, getLastScCacheSync } from './services/sc-opportunities-cache.js';
 import { resolveScUserId } from './services/sc-lookup.js';
 import { getEffectiveOppScope } from './services/opp-scope.js';
 
@@ -61,6 +62,9 @@ initializeDatabase()
 
 // Connect to Snowflake on startup, retrying on failure so a missed SSO
 // prompt or transient error doesn't permanently disable it for the process lifetime.
+// Only applies to the shared service-account connection — in EXTERNALBROWSER mode
+// there's no identity to connect as until a user's email is known, so connections
+// are established lazily per-request instead (see snowflake-connection.js).
 function connectToSnowflakeWithRetry() {
   connectToSnowflake()
     .then(() => {
@@ -73,7 +77,11 @@ function connectToSnowflakeWithRetry() {
     });
 }
 
-connectToSnowflakeWithRetry();
+const SNOWFLAKE_SERVICE_ACCOUNT_MODE = Boolean(process.env.SNOWFLAKE_USERNAME && process.env.SNOWFLAKE_PASSWORD);
+
+if (SNOWFLAKE_SERVICE_ACCOUNT_MODE) {
+  connectToSnowflakeWithRetry();
+}
 
 // ============================================================================
 // MIDDLEWARE (ORDER MATTERS!)
@@ -181,14 +189,36 @@ function transformOpportunity(row) {
 // Health check - includes both Snowflake and PostgreSQL status
 app.get('/api/health', async (req, res) => {
   const dbHealth = await checkDatabaseHealth();
+  const snowflakeConnected = isSnowflakeConnected();
+
+  // Server-side freshness (when Snowflake's source data was last refreshed) is
+  // only queryable over an already-established connection - EXTERNALBROWSER mode
+  // has no shared connection until a user logs in, so this stays null there.
+  let serverUpdatedAt = null;
+  if (snowflakeConnected) {
+    try {
+      const rows = await executeQuery(buildSnowflakeFreshnessQuery());
+      const lastRunDate = rows[0]?.LAST_RUN_DATE;
+      serverUpdatedAt = lastRunDate ? lastRunDate.toISOString().split('T')[0] : null;
+    } catch (error) {
+      console.error('Error fetching Snowflake freshness:', error);
+    }
+  }
+
+  const appUpdatedAt = await getLastScCacheSync().catch((error) => {
+    console.error('Error fetching last SC cache sync:', error);
+    return null;
+  });
 
   res.json({
     snowflake: {
-      status: isSnowflakeConnected() ? 'connected' : 'disconnected',
+      status: snowflakeConnected ? 'connected' : 'disconnected',
       database: 'Snowflake',
-      lastError: isSnowflakeConnected() ? null : getSnowflakeLastError(),
+      lastError: snowflakeConnected ? null : getSnowflakeLastError(),
+      serverUpdatedAt,
     },
     postgresql: dbHealth,
+    appUpdatedAt,
     devMode: process.env.DEV_MODE === 'true',
     timestamp: new Date().toISOString(),
   });
@@ -210,6 +240,8 @@ app.get('/api/me', authenticateWithPomerium, (req, res) => {
     name: req.user.name,
     createdAt: req.user.created_at,
     lastLogin: req.user.last_login,
+    needsEmailSetup: Boolean(req.user.needsEmailSetup),
+    isManager: Boolean(req.user.is_manager),
   });
 });
 
@@ -230,11 +262,24 @@ app.post('/api/auth/logout', (req, res) => {
 // DEV_MODE only: let a developer switch which email authenticateWithPomerium's
 // bypass uses, so SC-scoped filtering can be exercised without real Pomerium headers.
 if (process.env.DEV_MODE === 'true') {
-  app.post('/api/dev/session-email', (req, res) => {
+  app.post('/api/dev/session-email', async (req, res) => {
     const { email } = req.body;
 
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Missing "email" in request body' });
+    }
+
+    // In EXTERNALBROWSER mode this pops a browser SSO login for the given email;
+    // fail here (rather than on the next opportunities fetch) so a cancelled or
+    // failed SSO attempt surfaces immediately in the capture dialog.
+    try {
+      await connectToSnowflake(email);
+    } catch (error) {
+      console.error('Failed to connect to Snowflake for dev session email:', error);
+      return res.status(502).json({
+        error: 'Failed to authenticate with Snowflake',
+        details: error.message,
+      });
     }
 
     req.session.devEmailOverride = email;
@@ -286,7 +331,7 @@ app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
     const sql = buildOpportunitiesQuery(filtersWithScope);
     console.log('Executing query...');
 
-    const rows = await executeQuery(sql);
+    const rows = await executeQuery(sql, undefined, scEmail);
     console.log(`Found ${rows.length} opportunities`);
 
     const opportunities = rows.map(transformOpportunity);
@@ -311,6 +356,11 @@ app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, r
     console.log(`👤 User: ${userId} (SC: ${scEmail})`);
 
     const scope = await getEffectiveOppScope(userId);
+    // Sales Engineers scoping is manager-only — strip it for anyone else even
+    // if a stale preference value has it set (e.g. is_manager was revoked).
+    if (!req.user.is_manager) {
+      scope.scEmails = [];
+    }
 
     // Get opportunities (with caching)
     const result = await getScOpportunities(userId, scEmail, scope);
@@ -357,6 +407,23 @@ app.delete('/api/opportunities/my-sc-opps/cache', authenticateWithPomerium, asyn
   }
 });
 
+// GET /api/opportunities/:id/summary/cached - Look up a cached summary without
+// generating one on a miss. Used to populate the UI when an opportunity is
+// opened, so switching between opps never triggers an AI call.
+app.get('/api/opportunities/:id/summary/cached', authenticateWithPomerium, async (req, res) => {
+  try {
+    if (!databaseConnected) {
+      return res.status(503).json({ error: 'Database connection not established' });
+    }
+
+    const result = await getSummaryIfCached(req.params.id);
+    res.json(result); // null if no summary has been generated yet
+  } catch (error) {
+    console.error('Error fetching cached summary:', error);
+    res.status(500).json({ error: 'Failed to fetch cached summary', details: error.message });
+  }
+});
+
 // GET /api/opportunities/:id/summary - Generate or retrieve cached AI summary
 // Query param: ?regenerate=true to force regenerate
 app.get('/api/opportunities/:id/summary', authenticateWithPomerium, async (req, res) => {
@@ -373,7 +440,7 @@ app.get('/api/opportunities/:id/summary', authenticateWithPomerium, async (req, 
       opportunityIds: [id]
     });
 
-    const rows = await executeQuery(sql);
+    const rows = await executeQuery(sql, undefined, req.user.email);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Opportunity not found' });
@@ -411,7 +478,7 @@ app.get('/api/opportunities/:id/summary', authenticateWithPomerium, async (req, 
 app.get('/api/owners', authenticateWithPomerium, async (req, res) => {
   try {
     const sql = buildOwnersQuery();
-    const rows = await executeQuery(sql);
+    const rows = await executeQuery(sql, undefined, req.user.email);
 
     const owners = rows.map(row => row.OWNER).filter(Boolean);
     res.json(owners);
@@ -425,7 +492,7 @@ app.get('/api/owners', authenticateWithPomerium, async (req, res) => {
 app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
   try {
     const sql = buildCloseMonthsQuery();
-    const rows = await executeQuery(sql);
+    const rows = await executeQuery(sql, undefined, req.user.email);
 
     const months = rows.map(row => row.CLOSE_MONTH).filter(Boolean);
     res.json(months);
@@ -439,7 +506,7 @@ app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
 app.get('/api/stats', authenticateWithPomerium, async (req, res) => {
   try {
     const sql = buildStatsQuery();
-    const rows = await executeQuery(sql);
+    const rows = await executeQuery(sql, undefined, req.user.email);
 
     const stats = rows[0] || {};
     res.json({

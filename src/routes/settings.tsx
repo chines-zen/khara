@@ -1,5 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppNav } from "@/components/opportunities/AppNav";
 import { PREFERRED_NAME_QUERY_KEY, TIMEZONE_QUERY_KEY } from "@/lib/preferences";
@@ -59,10 +60,9 @@ function SettingsPage() {
   const [closeDateFrom, setCloseDateFrom] = useState(recommendedRange.from);
   const [closeDateTo, setCloseDateTo] = useState(recommendedRange.to);
   const [scopeSaved, setScopeSaved] = useState(false);
-
-  const [devMode, setDevMode] = useState(false);
-  const [devEmail, setDevEmail] = useState("");
-  const [devEmailSwitched, setDevEmailSwitched] = useState(false);
+  const [isManager, setIsManager] = useState(false);
+  const [scEmails, setScEmails] = useState<string[]>([]);
+  const [scEmailInput, setScEmailInput] = useState("");
 
   const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
     DEFAULT_PUNCH_LIST_SETTINGS,
@@ -92,20 +92,23 @@ function SettingsPage() {
       } else {
         setUseRecommendedRange(true);
       }
+      if (savedScope.scEmails) {
+        setScEmails(savedScope.scEmails);
+      }
     });
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/me", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => setIsManager(Boolean(me?.isManager)))
+      .catch(() => setIsManager(false));
   }, []);
 
   useEffect(() => {
     fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
       if (saved) setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
     });
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/health", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setDevMode(Boolean(data?.devMode)))
-      .catch(() => setDevMode(false));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -127,6 +130,7 @@ function SettingsPage() {
       arrThreshold: Number(arrThreshold) || DEFAULT_ARR_THRESHOLD,
       closeDateFrom: useRecommendedRange ? null : closeDateFrom,
       closeDateTo: useRecommendedRange ? null : closeDateTo,
+      scEmails: isManager ? scEmails : [],
     };
     await saveUserPreference("oppScopeSettings", settings);
     await fetch("/api/opportunities/my-sc-opps/cache", {
@@ -138,25 +142,26 @@ function SettingsPage() {
     setTimeout(() => setScopeSaved(false), 2000);
   };
 
+  const addScEmail = () => {
+    const email = scEmailInput.trim();
+    if (!email || scEmails.includes(email)) {
+      setScEmailInput("");
+      return;
+    }
+    setScEmails([...scEmails, email]);
+    setScEmailInput("");
+  };
+
+  const removeScEmail = (email: string) => {
+    setScEmails(scEmails.filter((e) => e !== email));
+  };
+
   const handlePunchListSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await saveUserPreference("punchListSettings", punchListSettings);
     queryClient.invalidateQueries({ queryKey: ["punchListSettings"] });
     setPunchListSaved(true);
     setTimeout(() => setPunchListSaved(false), 2000);
-  };
-
-  const handleDevEmailSwitch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await fetch("/api/dev/session-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email: devEmail.trim() }),
-    });
-    queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-    setDevEmailSwitched(true);
-    setTimeout(() => setDevEmailSwitched(false), 2000);
   };
 
   return (
@@ -239,6 +244,60 @@ function SettingsPage() {
           className="bg-white border border-zd-border rounded p-6 space-y-5"
         >
           <h2 className="text-sm font-semibold text-zd-dark">Opportunity Scope</h2>
+
+          {isManager && (
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+                Sales Engineers
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  value={scEmailInput}
+                  onChange={(e) => setScEmailInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addScEmail();
+                    }
+                  }}
+                  placeholder="sc@example.com"
+                  className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
+                />
+                <button
+                  type="button"
+                  onClick={addScEmail}
+                  disabled={!scEmailInput.trim()}
+                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+              {scEmails.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {scEmails.map((email) => (
+                    <span
+                      key={email}
+                      className="inline-flex items-center gap-1.5 bg-zd-bg border border-zd-border rounded px-2 py-1 text-xs text-zd-dark"
+                    >
+                      {email}
+                      <button
+                        type="button"
+                        onClick={() => removeScEmail(email)}
+                        className="text-zd-teal/60 hover:text-zd-dark"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-zd-teal/70">
+                Enter the emails of the SCs you manage. When set, your Opportunities
+                view shows their opportunities instead of your own.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
@@ -416,42 +475,6 @@ function SettingsPage() {
             </button>
           </div>
         </form>
-
-        {devMode && (
-          <form
-            onSubmit={handleDevEmailSwitch}
-            className="bg-white border border-amber-400 rounded p-6 space-y-3"
-          >
-            <h2 className="text-sm font-semibold text-zd-dark">
-              Dev Mode: Switch Test Email
-            </h2>
-            <p className="text-[11px] text-zd-teal/70">
-              Server is running with DEV_MODE=true. Enter an email to test as a
-              different SC without real Pomerium auth — this is the email used
-              to look up whose opportunities to pull.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="email"
-                value={devEmail}
-                onChange={(e) => setDevEmail(e.target.value)}
-                placeholder="sc@example.com"
-                className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity"
-              >
-                Switch
-              </button>
-            </div>
-            {devEmailSwitched && (
-              <p className="text-xs text-zd-green font-semibold">
-                Switched. Reload the Opportunities page to see the new scope.
-              </p>
-            )}
-          </form>
-        )}
       </main>
     </div>
   );

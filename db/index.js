@@ -51,6 +51,12 @@ export async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
     `);
 
+    // is_manager: NULL until determined from Snowflake (has direct reports),
+    // then cached so we don't re-check on every login.
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_manager BOOLEAN
+    `);
+
     // User preferences table - store filter defaults, saved views
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_preferences (

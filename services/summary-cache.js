@@ -1,5 +1,5 @@
 import { pool } from '../db/index.js';
-import { generateOpportunitySummary } from '../src/lib/vertex-ai.server.js';
+import { generateOpportunitySummary } from '../src/lib/claude-ai.server.js';
 
 /**
  * Get cached summary or generate new one
@@ -34,6 +34,22 @@ export async function getCachedSummary(opportunityId, opportunityData, forceRege
     summary,
     cached: false,
     generatedAt: generatedAt.toISOString(),
+  };
+}
+
+/**
+ * Look up a summary without generating one on a miss - used to populate
+ * the UI when an opportunity is opened, without triggering an AI call.
+ * @param {string} opportunityId
+ * @returns {Promise<{summary: string, generatedAt: string} | null>}
+ */
+export async function getSummaryIfCached(opportunityId) {
+  const cached = await getCachedSummaryFromDb(opportunityId);
+  if (!cached) return null;
+
+  return {
+    summary: cached.summary,
+    generatedAt: cached.generated_at,
   };
 }
 

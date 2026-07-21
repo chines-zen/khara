@@ -1,4 +1,5 @@
 import { pool } from '../db/index.js';
+import { checkHasDirectReports } from '../services/sc-lookup.js';
 
 /**
  * Extract user info from Pomerium headers
@@ -30,11 +31,37 @@ async function upsertUser(userInfo) {
     DO UPDATE SET
       last_login = NOW(),
       name = COALESCE(EXCLUDED.name, users.name)
-    RETURNING id, email, sub, name, created_at, last_login
+    RETURNING id, email, sub, name, created_at, last_login, is_manager
   `;
 
   const result = await pool.query(query, [email, sub, name]);
   return result.rows[0];
+}
+
+/**
+ * Determine and cache whether a user is a manager (has direct reports).
+ * Only hits Snowflake once per user — after that, is_manager is read from
+ * Postgres. Failures here must never block login, so they're swallowed and
+ * left for the next login to retry.
+ */
+async function ensureManagerFlag(user, email) {
+  if (user.is_manager !== null) {
+    return user.is_manager;
+  }
+
+  try {
+    const isManager = await checkHasDirectReports(email);
+
+    if (isManager !== null) {
+      await pool.query('UPDATE users SET is_manager = $1 WHERE id = $2', [isManager, user.id]);
+      user.is_manager = isManager;
+    }
+
+    return isManager;
+  } catch (error) {
+    console.error('Failed to determine manager status:', error);
+    return null;
+  }
 }
 
 /**
@@ -50,12 +77,21 @@ export async function authenticateWithPomerium(req, res, next) {
     // Development mode bypass
     if (process.env.DEV_MODE === 'true') {
       console.log('⚠️  DEV_MODE: Bypassing authentication');
-      const devEmail = req.session?.devEmailOverride || process.env.DEV_USER_EMAIL || 'dev@localhost';
+      const capturedEmail = req.session?.devEmailOverride || process.env.DEV_USER_EMAIL;
+      const devEmail = capturedEmail || 'dev@localhost';
 
       // Upsert through the real user path so preferences/SC lookups exercise
       // the same code as a real Pomerium login when switching test emails.
       const user = await upsertUser({ email: devEmail, sub: `dev-local-${devEmail}`, name: 'Development User' });
       req.user = user;
+      // No real email captured yet (session override or DEV_USER_EMAIL) — the
+      // frontend uses this to show a first-use email capture dialog instead of
+      // silently querying Snowflake/Salesforce data as the 'dev@localhost' placeholder.
+      req.user.needsEmailSetup = !capturedEmail;
+
+      if (capturedEmail) {
+        await ensureManagerFlag(req.user, capturedEmail);
+      }
 
       // Set session if available
       if (req.session) {
@@ -81,6 +117,8 @@ export async function authenticateWithPomerium(req, res, next) {
 
     // Attach user to request object
     req.user = user;
+
+    await ensureManagerFlag(req.user, pomeriumUser.email);
 
     // Also store in session for persistence
     req.session.userId = user.id;

@@ -84,6 +84,24 @@ function AdminPage() {
                 </span>
               </div>
 
+              {health?.snowflake?.serverUpdatedAt && (
+                <div className="text-sm">
+                  <span className="text-zd-teal/60">Server Updated:</span>{" "}
+                  <code className="bg-zd-bg px-2 py-1 rounded">
+                    {health.snowflake.serverUpdatedAt}
+                  </code>
+                </div>
+              )}
+
+              {health?.appUpdatedAt && (
+                <div className="text-sm">
+                  <span className="text-zd-teal/60">App Updated:</span>{" "}
+                  <code className="bg-zd-bg px-2 py-1 rounded">
+                    {new Date(health.appUpdatedAt).toLocaleString()}
+                  </code>
+                </div>
+              )}
+
               {health?.timestamp && (
                 <div className="text-sm">
                   <span className="text-zd-teal/60">Checked At:</span>{" "}
