@@ -123,9 +123,9 @@ export type CloseDatePreset =
   | "fiscal_year"
   | "custom";
 
-export const DEFAULT_CLOSE_DATE_PRESET: CloseDatePreset = "current_and_next_quarter";
+export const DEFAULT_CLOSE_DATE_PRESET: CloseDatePreset = "fiscal_year";
 
-export const DEFAULT_ARR_THRESHOLD = 50000;
+export const DEFAULT_ARR_THRESHOLD = 12000;
 
 export type OppScopeSettings = {
   arrThreshold: number;
