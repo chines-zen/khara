@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown } from "lucide-react";
 
 import {
   BarChart,
@@ -10,6 +10,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from "recharts";
 import { type Opportunity } from "@/lib/opportunities";
@@ -18,6 +19,7 @@ import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { useIsManager } from "@/hooks/use-is-manager";
 import { sfRecordUrl } from "@/lib/sfdc";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DashboardFilterBar,
   DEFAULT_DASHBOARD_FILTERS,
@@ -80,34 +82,78 @@ function applyFilters(opportunities: Opportunity[], filters: DashboardFilters): 
 }
 
 
+type GroupByOption = "opp" | "owner" | "stage" | "nameOfSc";
+
+const GROUP_BY_LABELS: Record<GroupByOption, string> = {
+  opp: "Opp",
+  owner: "AE",
+  stage: "Stage",
+  nameOfSc: "SE",
+};
+
+function groupKeyFor(o: Opportunity, groupBy: GroupByOption): string {
+  if (groupBy === "opp") return o.id;
+  if (groupBy === "nameOfSc") return o.nameOfSc ?? "Unassigned";
+  return o[groupBy];
+}
+
+function groupLabelFor(o: Opportunity, groupBy: GroupByOption): string {
+  if (groupBy === "opp") return o.name;
+  return groupKeyFor(o, groupBy);
+}
+
 type ChartRow = {
   month: string;
   monthLabel: string;
-  opps: { name: string; amount: number }[];
+  items: { key: string; label: string; amount: number }[];
   total: number;
-} & Record<string, number | string | { name: string; amount: number }[]>;
+} & Record<string, number | string | { key: string; label: string; amount: number }[]>;
 
-function buildChartData(opps: Opportunity[]): ChartRow[] {
+type ChartSeries = { key: string; label: string };
+
+function buildChartData(
+  opps: Opportunity[],
+  groupBy: GroupByOption,
+): { rows: ChartRow[]; series: ChartSeries[] } {
   const byMonth = new Map<string, Opportunity[]>();
   opps.forEach((o) => {
     const key = o.closeDate.slice(0, 7);
     if (!byMonth.has(key)) byMonth.set(key, []);
     byMonth.get(key)!.push(o);
   });
-  return Array.from(byMonth.entries())
+
+  const seriesLabels = new Map<string, string>();
+  opps.forEach((o) => {
+    const key = groupKeyFor(o, groupBy);
+    if (!seriesLabels.has(key)) seriesLabels.set(key, groupLabelFor(o, groupBy));
+  });
+  const series = Array.from(seriesLabels.entries())
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const rows = Array.from(byMonth.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, list]) => {
+      const groupTotals = new Map<string, number>();
+      list.forEach((o) => {
+        const key = groupKeyFor(o, groupBy);
+        groupTotals.set(key, (groupTotals.get(key) ?? 0) + o.amount);
+      });
       const row: ChartRow = {
         month,
         monthLabel: fmtMonth(month),
-        opps: list.map((o) => ({ name: o.name, amount: o.amount })),
         total: list.reduce((s, o) => s + o.amount, 0),
+        items: Array.from(groupTotals.entries())
+          .map(([key, amount]) => ({ key, label: seriesLabels.get(key) ?? key, amount }))
+          .sort((a, b) => b.amount - a.amount),
       };
-      list.forEach((o) => {
-        row[o.id] = o.amount;
+      groupTotals.forEach((amount, key) => {
+        row[key] = amount;
       });
       return row;
     });
+
+  return { rows, series };
 }
 
 const STACK_COLORS = [
@@ -128,10 +174,10 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
     <div className="bg-white border border-zd-border rounded shadow-md p-3 text-xs min-w-[220px]">
       <div className="font-semibold text-zd-dark mb-2">{row.monthLabel}</div>
       <ul className="space-y-1">
-        {row.opps.map((o) => (
-          <li key={o.name} className="flex justify-between gap-4">
-            <span className="text-zd-teal/80 truncate">{o.name}</span>
-            <span className="font-mono text-zd-dark">{fmtCompact(o.amount)}</span>
+        {row.items.map((item) => (
+          <li key={item.key} className="flex justify-between gap-4">
+            <span className="text-zd-teal/80 truncate">{item.label}</span>
+            <span className="font-mono text-zd-dark">{fmtCompact(item.amount)}</span>
           </li>
         ))}
       </ul>
@@ -145,6 +191,8 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
 
 function DashboardPage() {
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_DASHBOARD_FILTERS);
+  const [groupBy, setGroupBy] = useState<GroupByOption>("owner");
+  const [groupByOpen, setGroupByOpen] = useState(false);
   const { data: loaderOpportunities, isError, error: opportunitiesError } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
@@ -152,6 +200,10 @@ function DashboardPage() {
   });
   const opportunities = loaderOpportunities?.opportunities ?? [];
   const isManager = useIsManager();
+
+  const groupByOptions: GroupByOption[] = isManager
+    ? ["opp", "owner", "stage", "nameOfSc"]
+    : ["opp", "owner", "stage"];
 
   const filtered = useMemo(
     () => applyFilters(opportunities, filters),
@@ -171,8 +223,10 @@ function DashboardPage() {
     return { total, wonCount: won.length, wonValue, pipeline, winRate };
   }, [filtered]);
 
-  const chartData = useMemo(() => buildChartData(filtered), [filtered]);
-  const oppIds = useMemo(() => filtered.map((o) => o.id), [filtered]);
+  const { rows: chartData, series } = useMemo(
+    () => buildChartData(filtered, groupBy),
+    [filtered, groupBy],
+  );
 
   if (isError) {
     return (
@@ -211,11 +265,47 @@ function DashboardPage() {
         <div className="bg-white border border-zd-border rounded p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-zd-dark">ARR by Close Month</h2>
-            <span className="text-[11px] text-zd-teal/60 font-mono">
-              {filtered.length} opps
-            </span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider">
+                  Group by
+                </span>
+                <Popover open={groupByOpen} onOpenChange={setGroupByOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-zd-teal hover:text-zd-dark transition-colors"
+                    >
+                      {GROUP_BY_LABELS[groupBy]}
+                      <ChevronDown className="size-3" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-40 p-1">
+                    {groupByOptions.map((opt) => {
+                      const active = opt === groupBy;
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            setGroupBy(opt);
+                            setGroupByOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-sm rounded hover:bg-zd-bg ${
+                            active ? "text-zd-dark font-semibold" : "text-zd-teal/80"
+                          }`}
+                        >
+                          <span>{GROUP_BY_LABELS[opt]}</span>
+                          {active && <Check className="size-3.5 text-zd-green" />}
+                        </button>
+                      );
+                    })}
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
           </div>
-          <div className="h-72 w-full">
+          <div className={groupBy === "opp" ? "h-72 w-full" : "h-88 w-full"}>
             {chartData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-zd-teal/50">
                 No data for current filters.
@@ -240,10 +330,16 @@ function DashboardPage() {
                     cursor={{ fill: "rgba(43,182,115,0.08)" }}
                     content={<ChartTooltip />}
                   />
-                  {oppIds.map((id, idx) => (
+                  {groupBy !== "opp" && (
+                    <Legend
+                      verticalAlign="bottom"
+                      wrapperStyle={{ fontSize: 11, color: "#5b7a89", paddingTop: 12 }}
+                    />
+                  )}
+                  {series.map((s, idx) => (
                     <Bar
-                      key={id}
-                      dataKey={id}
+                      key={s.key}
+                      dataKey={s.key}
                       stackId="arr"
                       fill={STACK_COLORS[idx % STACK_COLORS.length]}
                       isAnimationActive={false}
