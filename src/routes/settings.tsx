@@ -593,7 +593,7 @@ function SettingsPage() {
             <button
               type="button"
               onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-zd-teal/70 hover:text-zd-dark transition-colors"
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
             >
               Advanced Settings
             </button>
