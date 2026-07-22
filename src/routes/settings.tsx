@@ -8,11 +8,14 @@ import {
   fetchUserPreference,
   saveUserPreference,
 } from "@/lib/api/user-preferences";
-import { getDefaultCloseDateRange } from "@/lib/fiscal-quarter";
 import {
   DEFAULT_ARR_THRESHOLD,
+  DEFAULT_CLOSE_DATE_PRESET,
+  resolveCloseDatePreset,
+  resolveCloseDateRange,
+  type CloseDatePreset,
   type OppScopeSettings,
-} from "@/components/opportunities/OppScopeOnboardingDialog";
+} from "@/lib/fiscal-quarter";
 import {
   DEFAULT_PUNCH_LIST_SETTINGS,
   type PunchListSettings,
@@ -54,15 +57,22 @@ function SettingsPage() {
   const [preferredName, setPreferredNameState] = useState("");
   const [saved, setSaved] = useState(false);
 
-  const recommendedRange = getDefaultCloseDateRange();
   const [arrThreshold, setArrThreshold] = useState(String(DEFAULT_ARR_THRESHOLD));
-  const [useRecommendedRange, setUseRecommendedRange] = useState(true);
-  const [closeDateFrom, setCloseDateFrom] = useState(recommendedRange.from);
-  const [closeDateTo, setCloseDateTo] = useState(recommendedRange.to);
+  const [closeDatePreset, setCloseDatePreset] = useState<CloseDatePreset>(DEFAULT_CLOSE_DATE_PRESET);
+  const [closeDateFrom, setCloseDateFrom] = useState(""); // only meaningful when closeDatePreset === "custom"
+  const [closeDateTo, setCloseDateTo] = useState("");
   const [scopeSaved, setScopeSaved] = useState(false);
   const [isManager, setIsManager] = useState(false);
   const [scEmails, setScEmails] = useState<string[]>([]);
   const [scEmailInput, setScEmailInput] = useState("");
+  // Starts true to avoid a flash of the setup banner before the fetch below
+  // resolves; only flips to false if there's confirmed to be no saved scope.
+  const [hasSavedScopeSettings, setHasSavedScopeSettings] = useState(true);
+
+  const resolvedRange =
+    closeDatePreset === "custom"
+      ? { from: closeDateFrom, to: closeDateTo }
+      : resolveCloseDateRange(closeDatePreset, null, null);
 
   const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
     DEFAULT_PUNCH_LIST_SETTINGS,
@@ -83,15 +93,20 @@ function SettingsPage() {
 
   useEffect(() => {
     fetchUserPreference<OppScopeSettings>("oppScopeSettings").then((savedScope) => {
-      if (!savedScope) return;
-      setArrThreshold(String(savedScope.arrThreshold));
-      if (savedScope.closeDateFrom && savedScope.closeDateTo) {
-        setUseRecommendedRange(false);
-        setCloseDateFrom(savedScope.closeDateFrom);
-        setCloseDateTo(savedScope.closeDateTo);
-      } else {
-        setUseRecommendedRange(true);
+      if (!savedScope) {
+        setHasSavedScopeSettings(false);
+        return;
       }
+      setHasSavedScopeSettings(true);
+      setArrThreshold(String(savedScope.arrThreshold));
+
+      const preset = resolveCloseDatePreset(savedScope);
+      setCloseDatePreset(preset);
+      if (preset === "custom") {
+        setCloseDateFrom(savedScope.closeDateFrom ?? "");
+        setCloseDateTo(savedScope.closeDateTo ?? "");
+      }
+
       if (savedScope.scEmails) {
         setScEmails(savedScope.scEmails);
       }
@@ -128,11 +143,13 @@ function SettingsPage() {
     e.preventDefault();
     const settings: OppScopeSettings = {
       arrThreshold: Number(arrThreshold) || DEFAULT_ARR_THRESHOLD,
-      closeDateFrom: useRecommendedRange ? null : closeDateFrom,
-      closeDateTo: useRecommendedRange ? null : closeDateTo,
+      closeDatePreset,
+      closeDateFrom: closeDatePreset === "custom" ? closeDateFrom : null,
+      closeDateTo: closeDatePreset === "custom" ? closeDateTo : null,
       scEmails: isManager ? scEmails : [],
     };
     await saveUserPreference("oppScopeSettings", settings);
+    setHasSavedScopeSettings(true);
     await fetch("/api/opportunities/my-sc-opps/cache", {
       method: "DELETE",
       credentials: "include",
@@ -169,6 +186,13 @@ function SettingsPage() {
       <AppNav />
       <main className="max-w-[720px] mx-auto p-6 space-y-6">
         <h1 className="text-lg font-semibold text-zd-dark">Settings</h1>
+
+        {!hasSavedScopeSettings && (
+          <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-4 py-3 text-sm">
+            <span className="font-semibold">Set up your Opportunity Scope</span> — fill out
+            and save the Opportunity Scope settings below before your first data sync.
+          </div>
+        )}
 
         <form
           onSubmit={handleSubmit}
@@ -221,9 +245,7 @@ function SettingsPage() {
                 </option>
               ))}
             </select>
-            <p className="mt-2 text-[11px] text-zd-teal/70">
-              Used to display the NavBar&apos;s last-refreshed time in your local time.
-            </p>
+  
           </div>
 
           <div className="pt-2 flex items-center justify-end gap-3">
@@ -293,8 +315,7 @@ function SettingsPage() {
                 </div>
               )}
               <p className="mt-2 text-[11px] text-zd-teal/70">
-                Enter the emails of the SCs you manage. When set, your Opportunities
-                view shows their opportunities instead of your own.
+                Fetch opportunities for these SEs.
               </p>
             </div>
           )}
@@ -320,19 +341,18 @@ function SettingsPage() {
               Close Date Range
             </label>
 
-            <label className="flex items-center gap-2 text-sm cursor-pointer mb-2">
-              <input
-                type="checkbox"
-                checked={useRecommendedRange}
-                onChange={(e) => setUseRecommendedRange(e.target.checked)}
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>
-                Use recommended range ({recommendedRange.from} to {recommendedRange.to})
-              </span>
-            </label>
+            <select
+              value={closeDatePreset}
+              onChange={(e) => setCloseDatePreset(e.target.value as CloseDatePreset)}
+              className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green mb-2"
+            >
+              <option value="current_quarter">Current Fiscal Quarter</option>
+              <option value="current_and_next_quarter">Current + Next Fiscal Quarter</option>
+              <option value="fiscal_year">Fiscal Year</option>
+              <option value="custom">Custom</option>
+            </select>
 
-            {!useRecommendedRange && (
+            {closeDatePreset === "custom" ? (
               <div className="flex items-center gap-2">
                 <input
                   type="date"
@@ -348,6 +368,10 @@ function SettingsPage() {
                   className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
                 />
               </div>
+            ) : (
+              <p className="text-xs text-zd-teal/70">
+                From {resolvedRange.from} to {resolvedRange.to}
+              </p>
             )}
           </div>
 

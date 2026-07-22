@@ -7,6 +7,7 @@ type Props = {
   active: boolean;
   onClick: () => void;
   isHidden?: boolean;
+  isManager?: boolean;
 };
 
 const fmt = (n: number) => `$${n.toLocaleString()}`;
@@ -52,7 +53,7 @@ function UpdatedChip({ date, scNotes, stage }: { date: string | null; scNotes: s
   );
 }
 
-export function OpportunityListItem({ opp, active, onClick, isHidden }: Props) {
+export function OpportunityListItem({ opp, active, onClick, isHidden, isManager = false }: Props) {
   return (
     <button
       type="button"
@@ -66,7 +67,10 @@ export function OpportunityListItem({ opp, active, onClick, isHidden }: Props) {
         <UpdatedChip date={opp.lastUpdateDate} scNotes={opp.scNotes} stage={opp.stage} />
       </div>
       <div className="flex justify-between text-xs text-zd-teal/70">
-        <span className="truncate">{opp.owner}</span>
+        <span className="truncate">
+          {opp.owner}
+          {isManager && ` | ${opp.nameOfSc ?? "Not Assigned"}`}
+        </span>
         <span className="font-mono font-medium shrink-0">{fmt(opp.amount)}</span>
       </div>
       <div className="mt-2 flex items-center gap-2 flex-wrap">

@@ -6,6 +6,7 @@ import type { Opportunity } from "@/lib/opportunities";
 export type DashboardFilters = {
   stages: string[];
   owner: string;
+  se: string; // "" = all; manager-only filter
   closeMonths: string[];
   arrMin: string; // threshold; filter out opps with amount < arrMin
 };
@@ -13,6 +14,7 @@ export type DashboardFilters = {
 export const DEFAULT_DASHBOARD_FILTERS: DashboardFilters = {
   stages: [],
   owner: "",
+  se: "",
   closeMonths: [],
   arrMin: "",
 };
@@ -21,6 +23,7 @@ type Props = {
   filters: DashboardFilters;
   onChange: (f: DashboardFilters) => void;
   opportunities: Opportunity[];
+  isManager: boolean;
 };
 
 const MONTH_LABEL = (key: string) => {
@@ -29,7 +32,7 @@ const MONTH_LABEL = (key: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "numeric" });
 };
 
-export function DashboardFilterBar({ filters, onChange, opportunities }: Props) {
+export function DashboardFilterBar({ filters, onChange, opportunities, isManager }: Props) {
   const update = <K extends keyof DashboardFilters>(key: K, value: DashboardFilters[K]) =>
     onChange({ ...filters, [key]: value });
 
@@ -38,6 +41,15 @@ export function DashboardFilterBar({ filters, onChange, opportunities }: Props) 
     const set = new Set<string>();
     opportunities.forEach((o) => {
       if (o.owner) set.add(o.owner);
+    });
+    return Array.from(set).sort();
+  }, [opportunities]);
+
+  // Derive available SEs from data (manager-only filter)
+  const availableSEs = useMemo(() => {
+    const set = new Set<string>();
+    opportunities.forEach((o) => {
+      if (o.nameOfSc) set.add(o.nameOfSc);
     });
     return Array.from(set).sort();
   }, [opportunities]);
@@ -85,14 +97,14 @@ export function DashboardFilterBar({ filters, onChange, opportunities }: Props) 
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            Owner
+            AE
           </label>
           <select
             value={filters.owner}
             onChange={(e) => update("owner", e.target.value)}
             className="bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
           >
-            <option value="">All owners</option>
+            <option value="">All AEs</option>
             {availableOwners.map((o) => (
               <option key={o} value={o}>
                 {o}
@@ -100,6 +112,26 @@ export function DashboardFilterBar({ filters, onChange, opportunities }: Props) 
             ))}
           </select>
         </div>
+
+        {isManager && (
+          <div>
+            <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+              SE
+            </label>
+            <select
+              value={filters.se}
+              onChange={(e) => update("se", e.target.value)}
+              className="bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            >
+              <option value="">All SEs</option>
+              {availableSEs.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">

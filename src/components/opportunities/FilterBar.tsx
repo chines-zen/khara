@@ -8,6 +8,7 @@ export type Filters = {
   search: string;
   stages: string[];
   owner: string; // "" = all
+  se: string; // "" = all; manager-only filter
   closeMonths: string[]; // yyyy-mm
   daysSinceMax: string; // "" = no filter; otherwise max days since last update
   arrMin: string; // "" = no filter; otherwise minimum ARR amount
@@ -17,6 +18,7 @@ export const DEFAULT_FILTERS: Filters = {
   search: "",
   stages: [],
   owner: "",
+  se: "",
   closeMonths: [],
   daysSinceMax: "",
   arrMin: "",
@@ -26,6 +28,7 @@ type Props = {
   filters: Filters;
   onChange: (f: Filters) => void;
   opportunities: Opportunity[];
+  isManager: boolean;
 };
 
 const MONTH_LABEL = (key: string) => {
@@ -34,7 +37,7 @@ const MONTH_LABEL = (key: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "numeric" });
 };
 
-export function FilterBar({ filters, onChange, opportunities }: Props) {
+export function FilterBar({ filters, onChange, opportunities, isManager }: Props) {
   const update = <K extends keyof Filters>(key: K, value: Filters[K]) =>
     onChange({ ...filters, [key]: value });
 
@@ -43,6 +46,15 @@ export function FilterBar({ filters, onChange, opportunities }: Props) {
     const set = new Set<string>();
     opportunities.forEach((o) => {
       if (o.owner) set.add(o.owner);
+    });
+    return Array.from(set).sort();
+  }, [opportunities]);
+
+  // Derive available SEs from data (manager-only filter)
+  const availableSEs = useMemo(() => {
+    const set = new Set<string>();
+    opportunities.forEach((o) => {
+      if (o.nameOfSc) set.add(o.nameOfSc);
     });
     return Array.from(set).sort();
   }, [opportunities]);
@@ -90,6 +102,7 @@ export function FilterBar({ filters, onChange, opportunities }: Props) {
   const activeFiltersCount = [
     filters.search,
     filters.owner,
+    filters.se,
     ...filters.stages,
     ...filters.closeMonths,
     filters.daysSinceMax,
@@ -119,21 +132,21 @@ export function FilterBar({ filters, onChange, opportunities }: Props) {
             type="text"
             value={filters.search}
             onChange={(e) => update("search", e.target.value)}
-            placeholder="Opportunity, account or owner…"
+            placeholder="Opportunity, account or AE…"
             className="w-full bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
           />
         </div>
 
         <div>
           <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            Owner
+            AE
           </label>
           <select
             value={filters.owner}
             onChange={(e) => update("owner", e.target.value)}
             className="bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
           >
-            <option value="">All owners</option>
+            <option value="">All AEs</option>
             {availableOwners.map((o) => (
               <option key={o} value={o}>
                 {o}
@@ -141,6 +154,26 @@ export function FilterBar({ filters, onChange, opportunities }: Props) {
             ))}
           </select>
         </div>
+
+        {isManager && (
+          <div>
+            <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+              SE
+            </label>
+            <select
+              value={filters.se}
+              onChange={(e) => update("se", e.target.value)}
+              className="bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            >
+              <option value="">All SEs</option>
+              {availableSEs.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">

@@ -67,9 +67,10 @@ function NoteBlock({ label, body }: { label: string; body: string }) {
 type Props = {
   opp: Opportunity;
   isHidden?: boolean;
+  isManager?: boolean;
 };
 
-export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Props) {
+export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isManager = false }: Props) {
   const queryClient = useQueryClient();
   const [summary, setSummary] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string>("");
@@ -202,9 +203,16 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
       {/* Header */}
       <div className="p-6 border-b border-zd-border">
         <div className="flex justify-between items-start gap-6 mb-6">
-          <h2 className="text-2xl font-bold tracking-tight text-zd-dark truncate flex-1">
-            {opp.name}
-          </h2>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight text-zd-dark truncate">
+              {opp.name}
+            </h2>
+            {isManager && (
+              <p className="text-sm text-zd-teal/70 mt-1">
+                SE: {opp.nameOfSc ?? "Not Assigned"}
+              </p>
+            )}
+          </div>
           <div className="flex items-center gap-3 shrink-0">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -230,7 +238,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false }: Pr
         <div className="grid grid-cols-4 gap-x-8 gap-y-4">
           {/* Row 1 */}
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Owner</dt>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">AE</dt>
             <dd className="text-sm font-medium text-zd-dark mt-1">{opp.owner}</dd>
           </div>
           <div>

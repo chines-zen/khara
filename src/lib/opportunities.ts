@@ -17,6 +17,7 @@ export type Opportunity = {
   amount: number;
   closeDate: string; // ISO yyyy-mm-dd
   owner: string;
+  nameOfSc?: string; // SE assigned to this opp (Snowflake NAME_OF_SC); absent on mock records
   scNotes: string;
   nextSteps: string; // AE Notes (Snowflake NEXT_STEP_C) — free text, not a list
   managerNotes: string;

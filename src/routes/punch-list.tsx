@@ -8,11 +8,17 @@ import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
 import { sfRecordUrl } from "@/lib/sfdc";
+import { useIsManager } from "@/hooks/use-is-manager";
 import {
   buildPunchList,
   DEFAULT_PUNCH_LIST_SETTINGS,
   type PunchListSettings,
 } from "@/lib/punch-list";
+import {
+  PunchListFilterBar,
+  DEFAULT_PUNCH_LIST_FILTERS,
+  type PunchListFilters,
+} from "@/components/opportunities/PunchListFilterBar";
 
 export const Route = createFileRoute("/punch-list")({
   head: () => ({
@@ -29,6 +35,8 @@ export const Route = createFileRoute("/punch-list")({
 
 function PunchListPage() {
   const [settings, setSettings] = useState<PunchListSettings>(DEFAULT_PUNCH_LIST_SETTINGS);
+  const [seFilters, setSeFilters] = useState<PunchListFilters>(DEFAULT_PUNCH_LIST_FILTERS);
+  const isManager = useIsManager();
 
   useEffect(() => {
     fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
@@ -48,9 +56,17 @@ function PunchListPage() {
     queryFn: fetchHiddenOpportunities,
   });
 
+  const scopedOpportunities = useMemo(
+    () =>
+      seFilters.se
+        ? opportunities.filter((o) => o.nameOfSc === seFilters.se)
+        : opportunities,
+    [opportunities, seFilters],
+  );
+
   const rows = useMemo(
-    () => buildPunchList(opportunities, hiddenIds, settings),
-    [opportunities, hiddenIds, settings],
+    () => buildPunchList(scopedOpportunities, hiddenIds, settings),
+    [scopedOpportunities, hiddenIds, settings],
   );
 
   const handleOpenAll = () => {
@@ -89,12 +105,20 @@ function PunchListPage() {
           </button>
         </div>
 
+        <PunchListFilterBar
+          filters={seFilters}
+          onChange={setSeFilters}
+          opportunities={opportunities}
+          isManager={isManager}
+        />
+
         <div className="bg-white border border-zd-border rounded overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-zd-bg/50 border-b border-zd-border">
                 <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
                   <th className="px-4 py-2">Opp</th>
+                  {isManager && <th className="px-4 py-2">SE</th>}
                   <th className="px-4 py-2">To Do</th>
                   <th className="px-4 py-2"></th>
                 </tr>
@@ -102,7 +126,7 @@ function PunchListPage() {
               <tbody className="divide-y divide-zd-border">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-zd-teal/50">
+                    <td colSpan={isManager ? 4 : 3} className="px-4 py-8 text-center text-zd-teal/50">
                       No opportunities match your Punch List criteria.
                     </td>
                   </tr>
@@ -118,6 +142,11 @@ function PunchListPage() {
                           {opp.name}
                         </Link>
                       </td>
+                      {isManager && (
+                        <td className="px-4 py-2 text-zd-teal/80">
+                          {opp.nameOfSc ?? "Not Assigned"}
+                        </td>
+                      )}
                       <td className="px-4 py-2">
                         <div className="flex flex-wrap gap-1">
                           {reasons.map((reason) => (

@@ -1,21 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { X, ChevronDown, Check } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { OPPORTUNITIES } from "@/lib/opportunities";
 import { OpportunityListItem } from "@/components/opportunities/OpportunityListItem";
 import { OpportunityDetail } from "@/components/opportunities/OpportunityDetail";
 import { AppNav } from "@/components/opportunities/AppNav";
 import {
-  OppScopeOnboardingDialog,
-  type OppScopeSettings,
-} from "@/components/opportunities/OppScopeOnboardingDialog";
-import {
   fetchUserPreference,
   saveUserPreference,
 } from "@/lib/api/user-preferences";
 import { fetchOpportunities, ScUserNotFoundError } from "@/lib/api/sc-opportunities";
+import { useIsManager } from "@/hooks/use-is-manager";
 import {
   Popover,
   PopoverContent,
@@ -100,6 +97,11 @@ function applyFilters(opportunities: typeof OPPORTUNITIES, filters: Filters) {
       return false;
     }
 
+    // SE filter (manager-only)
+    if (filters.se && opp.nameOfSc !== filters.se) {
+      return false;
+    }
+
     // Close month filter
     if (filters.closeMonths.length > 0) {
       const oppMonth = opp.closeDate.slice(0, 7);
@@ -129,14 +131,13 @@ function applyFilters(opportunities: typeof OPPORTUNITIES, filters: Filters) {
 
 function OpportunitiesPage() {
   const { oppId } = Route.useSearch();
-  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [showDisclaimer, setShowDisclaimer] = useState(true);
   const [sortBy, setSortBy] = useState<SortOption>("closeDate");
   const [sortOpen, setSortOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
 
   // Fetch opportunities, scoped server-side by SC identity/close-date/ARR
   const {
@@ -150,6 +151,7 @@ function OpportunitiesPage() {
     retry: false,
   });
   const allOpportunities = loaderOpportunities?.opportunities ?? [];
+  const isManager = useIsManager();
   const scNotFoundError =
     isError && opportunitiesError instanceof ScUserNotFoundError ? opportunitiesError : null;
   const fetchError =
@@ -184,7 +186,8 @@ function OpportunitiesPage() {
           setShowHidden(savedShowHidden);
         }
         if (savedScopeSettings === null) {
-          setShowOnboarding(true);
+          navigate({ to: "/settings" });
+          return; // scope settings missing — bail out, we're leaving this page
         }
       } catch (error) {
         console.error('Failed to load saved filters:', error);
@@ -195,16 +198,6 @@ function OpportunitiesPage() {
 
     loadSavedFilters();
   }, []);
-
-  const handleOnboardingSave = async (settings: OppScopeSettings) => {
-    await saveUserPreference('oppScopeSettings', settings);
-    setShowOnboarding(false);
-    await fetch('/api/opportunities/my-sc-opps/cache', {
-      method: 'DELETE',
-      credentials: 'include',
-    });
-    queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-  };
 
   // Save filters to database whenever they change (debounced)
   useEffect(() => {
@@ -312,7 +305,6 @@ function OpportunitiesPage() {
   return (
     <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 flex flex-col">
       <AppNav />
-      <OppScopeOnboardingDialog open={showOnboarding} onSave={handleOnboardingSave} />
       <main className="p-6 space-y-6 flex-1 flex flex-col min-h-0">
         {showDisclaimer && (
           <div className="flex items-start justify-between gap-3 bg-zd-green/10 border border-zd-green/30 text-zd-dark rounded px-4 py-2.5 text-sm">
@@ -332,7 +324,7 @@ function OpportunitiesPage() {
           </div>
         )}
 
-        <FilterBar filters={filters} onChange={setFilters} opportunities={allOpportunities} />
+        <FilterBar filters={filters} onChange={setFilters} opportunities={allOpportunities} isManager={isManager} />
 
 
         <div className="flex gap-0 bg-white border border-zd-border rounded overflow-hidden flex-1 min-h-[520px] shadow-sm">
@@ -417,6 +409,7 @@ function OpportunitiesPage() {
                     active={selected?.id === opp.id}
                     onClick={() => setSelectedId(opp.id)}
                     isHidden={hiddenIds.includes(opp.id)}
+                    isManager={isManager}
                   />
                 ))
               )}
@@ -424,7 +417,7 @@ function OpportunitiesPage() {
           </div>
 
           {selected ? (
-            <OpportunityDetail opp={selected} isHidden={hiddenIds.includes(selected.id)} />
+            <OpportunityDetail opp={selected} isHidden={hiddenIds.includes(selected.id)} isManager={isManager} />
           ) : (
             <div className="flex-1 min-w-0 flex items-center justify-center text-sm text-zd-teal/50">
               Select an opportunity to view details.

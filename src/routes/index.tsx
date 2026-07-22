@@ -16,6 +16,7 @@ import { type Opportunity } from "@/lib/opportunities";
 import { KpiCard } from "@/components/opportunities/KpiCard";
 import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
+import { useIsManager } from "@/hooks/use-is-manager";
 import { sfRecordUrl } from "@/lib/sfdc";
 import {
   DashboardFilterBar,
@@ -68,6 +69,7 @@ function applyFilters(opportunities: Opportunity[], filters: DashboardFilters): 
   return opportunities.filter((o) => {
     if (filters.stages.length && !filters.stages.includes(o.stage)) return false;
     if (filters.owner && o.owner !== filters.owner) return false;
+    if (filters.se && o.nameOfSc !== filters.se) return false;
     if (filters.closeMonths.length) {
       const monthKey = o.closeDate.slice(0, 7);
       if (!filters.closeMonths.includes(monthKey)) return false;
@@ -149,6 +151,7 @@ function DashboardPage() {
     retry: false,
   });
   const opportunities = loaderOpportunities?.opportunities ?? [];
+  const isManager = useIsManager();
 
   const filtered = useMemo(
     () => applyFilters(opportunities, filters),
@@ -191,7 +194,7 @@ function DashboardPage() {
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
       <AppNav />
       <main className="p-6 space-y-6">
-        <DashboardFilterBar filters={filters} onChange={setFilters} opportunities={opportunities} />
+        <DashboardFilterBar filters={filters} onChange={setFilters} opportunities={opportunities} isManager={isManager} />
 
         <div className="grid grid-cols-4 gap-4">
           <KpiCard label="Total Opportunities" value={String(kpis.total)} />
@@ -264,7 +267,7 @@ type SortDir = "asc" | "desc";
 const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "name", label: "Opp" },
   { key: "account", label: "Account" },
-  { key: "owner", label: "Owner" },
+  { key: "owner", label: "AE" },
   { key: "amount", label: "ARR", align: "right" },
   { key: "stage", label: "Stage" },
   { key: "closeDate", label: "Close Date" },
