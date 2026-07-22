@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppNav } from "@/components/opportunities/AppNav";
-import { PREFERRED_NAME_QUERY_KEY, TIMEZONE_QUERY_KEY } from "@/lib/preferences";
+import {
+  PREFERRED_NAME_QUERY_KEY,
+  TIMEZONE_QUERY_KEY,
+} from "@/lib/preferences";
 import {
   fetchUserPreference,
   saveUserPreference,
@@ -57,8 +60,12 @@ function SettingsPage() {
   const [preferredName, setPreferredNameState] = useState("");
   const [saved, setSaved] = useState(false);
 
-  const [arrThreshold, setArrThreshold] = useState(String(DEFAULT_ARR_THRESHOLD));
-  const [closeDatePreset, setCloseDatePreset] = useState<CloseDatePreset>(DEFAULT_CLOSE_DATE_PRESET);
+  const [arrThreshold, setArrThreshold] = useState(
+    String(DEFAULT_ARR_THRESHOLD),
+  );
+  const [closeDatePreset, setCloseDatePreset] = useState<CloseDatePreset>(
+    DEFAULT_CLOSE_DATE_PRESET,
+  );
   const [closeDateFrom, setCloseDateFrom] = useState(""); // only meaningful when closeDatePreset === "custom"
   const [closeDateTo, setCloseDateTo] = useState("");
   const [scopeSaved, setScopeSaved] = useState(false);
@@ -78,6 +85,7 @@ function SettingsPage() {
     DEFAULT_PUNCH_LIST_SETTINGS,
   );
   const [punchListSaved, setPunchListSaved] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
   useEffect(() => {
     fetchUserPreference<string>("preferredName").then((savedName) => {
@@ -92,25 +100,27 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetchUserPreference<OppScopeSettings>("oppScopeSettings").then((savedScope) => {
-      if (!savedScope) {
-        setHasSavedScopeSettings(false);
-        return;
-      }
-      setHasSavedScopeSettings(true);
-      setArrThreshold(String(savedScope.arrThreshold));
+    fetchUserPreference<OppScopeSettings>("oppScopeSettings").then(
+      (savedScope) => {
+        if (!savedScope) {
+          setHasSavedScopeSettings(false);
+          return;
+        }
+        setHasSavedScopeSettings(true);
+        setArrThreshold(String(savedScope.arrThreshold));
 
-      const preset = resolveCloseDatePreset(savedScope);
-      setCloseDatePreset(preset);
-      if (preset === "custom") {
-        setCloseDateFrom(savedScope.closeDateFrom ?? "");
-        setCloseDateTo(savedScope.closeDateTo ?? "");
-      }
+        const preset = resolveCloseDatePreset(savedScope);
+        setCloseDatePreset(preset);
+        if (preset === "custom") {
+          setCloseDateFrom(savedScope.closeDateFrom ?? "");
+          setCloseDateTo(savedScope.closeDateTo ?? "");
+        }
 
-      if (savedScope.scEmails) {
-        setScEmails(savedScope.scEmails);
-      }
-    });
+        if (savedScope.scEmails) {
+          setScEmails(savedScope.scEmails);
+        }
+      },
+    );
   }, []);
 
   useEffect(() => {
@@ -121,9 +131,12 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
-      if (saved) setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
-    });
+    fetchUserPreference<PunchListSettings>("punchListSettings").then(
+      (saved) => {
+        if (saved)
+          setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
+      },
+    );
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -181,6 +194,311 @@ function SettingsPage() {
     setTimeout(() => setPunchListSaved(false), 2000);
   };
 
+  const oppScopeForm = (
+    <form
+      onSubmit={handleScopeSubmit}
+      className="bg-white border border-zd-border rounded p-6 space-y-5"
+    >
+      <h2 className="text-sm font-semibold text-zd-dark">Opportunity Scope</h2>
+
+      {isManager && (
+        <div>
+          <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+            Sales Engineers
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="email"
+              value={scEmailInput}
+              onChange={(e) => setScEmailInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  addScEmail();
+                }
+              }}
+              placeholder="awesome.se@zendesk.com"
+              className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
+            />
+            <button
+              type="button"
+              onClick={addScEmail}
+              disabled={!scEmailInput.trim()}
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+          {scEmails.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {scEmails.map((email) => (
+                <span
+                  key={email}
+                  className="inline-flex items-center gap-1.5 bg-zd-bg border border-zd-border rounded px-2 py-1 text-xs text-zd-dark"
+                >
+                  {email}
+                  <button
+                    type="button"
+                    onClick={() => removeScEmail(email)}
+                    className="text-zd-teal/60 hover:text-zd-dark"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-zd-teal/70">
+            Fetch opportunities for these SEs.
+          </p>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+          ARR Minimum
+        </label>
+        <div className="flex items-center gap-1 max-w-[200px]">
+          <span className="text-sm text-zd-teal/50">$</span>
+          <input
+            type="number"
+            min={0}
+            value={arrThreshold}
+            onChange={(e) => setArrThreshold(e.target.value)}
+            className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+          Close Date Range
+        </label>
+
+        <select
+          value={closeDatePreset}
+          onChange={(e) =>
+            setCloseDatePreset(e.target.value as CloseDatePreset)
+          }
+          className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green mb-2"
+        >
+          <option value="current_quarter">Current Fiscal Quarter</option>
+          <option value="current_and_next_quarter">
+            Current + Next Fiscal Quarter
+          </option>
+          <option value="fiscal_year">Fiscal Year</option>
+          <option value="custom">Custom</option>
+        </select>
+
+        {closeDatePreset === "custom" ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={closeDateFrom}
+              onChange={(e) => setCloseDateFrom(e.target.value)}
+              className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+            <span className="text-zd-teal/50 text-xs">to</span>
+            <input
+              type="date"
+              value={closeDateTo}
+              onChange={(e) => setCloseDateTo(e.target.value)}
+              className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+          </div>
+        ) : (
+          <p className="text-xs text-zd-teal/70">
+            From {resolvedRange.from} to {resolvedRange.to}
+          </p>
+        )}
+      </div>
+
+      <div className="pt-2 flex items-center justify-end gap-3">
+        {scopeSaved && (
+          <span className="text-xs text-zd-green font-semibold">Saved</span>
+        )}
+        <button
+          type="submit"
+          className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  );
+
+  const punchListForm = (
+    <form
+      onSubmit={handlePunchListSubmit}
+      className="bg-white border border-zd-border rounded p-6 space-y-5"
+    >
+      <h2 className="text-sm font-semibold text-zd-dark">
+        Punch List Criteria
+      </h2>
+      <p className="text-[11px] text-zd-teal/70">
+        Choose which criteria flag an opportunity on your Punch List.
+      </p>
+
+      <div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.staleNotesEnabled}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                staleNotesEnabled: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>Notes not updated in</span>
+          <input
+            type="number"
+            min={1}
+            value={punchListSettings.staleNotesDays}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                staleNotesDays: Number(e.target.value) || 1,
+              })
+            }
+            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+          />
+          <span>+ days</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.noScNotesEnabled}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                noScNotesEnabled: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>No SE notes</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.noEngagementTypeEnabled}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                noEngagementTypeEnabled: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>No SE engagement type</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.dScoreBelowEnabled}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                dScoreBelowEnabled: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>D-Score is below</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={punchListSettings.dScoreBelowThreshold}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                dScoreBelowThreshold: Number(e.target.value) || 0,
+              })
+            }
+            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+          />
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.dScoreAboveEnabled}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                dScoreAboveEnabled: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>D-Score is above</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={punchListSettings.dScoreAboveThreshold}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                dScoreAboveThreshold: Number(e.target.value) || 0,
+              })
+            }
+            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+          />
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.includeHiddenOpps}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                includeHiddenOpps: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>Include hidden opps</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={punchListSettings.includeClosedOpps}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                includeClosedOpps: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>Show closed opps (Won/Lost)</span>
+        </label>
+      </div>
+
+      <div className="pt-2 flex items-center justify-end gap-3">
+        {punchListSaved && (
+          <span className="text-xs text-zd-green font-semibold">Saved</span>
+        )}
+        <button
+          type="submit"
+          className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  );
+
   return (
     <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
       <AppNav />
@@ -189,8 +507,9 @@ function SettingsPage() {
 
         {!hasSavedScopeSettings && (
           <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-4 py-3 text-sm">
-            <span className="font-semibold">Set up your Opportunity Scope</span> — fill out
-            and save the Opportunity Scope settings below before your first data sync.
+            <span className="font-semibold">Set up your Opportunity Scope</span>{" "}
+            — fill out and save the Opportunity Scope settings below before your
+            first data sync.
           </div>
         )}
 
@@ -211,21 +530,26 @@ function SettingsPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
-              Date Formatting
-            </label>
-            <input
-              type="text"
-              value={dateFormat}
-              onChange={(e) => setDateFormat(e.target.value)}
-              placeholder="e.g. mm/dd/yyyy"
-              className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
-            />
-            <p className="mt-2 text-[11px] text-zd-teal/70">
-              Please enter the format you use when adding SC notes in Salesforce. This is necessary to accurately calculate update periods. <br />Example: mm/dd/yyyy, mm.dd.yy, etc
-            </p>
-          </div>
+          {!isManager && (
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+                Date Formatting
+              </label>
+              <input
+                type="text"
+                value={dateFormat}
+                onChange={(e) => setDateFormat(e.target.value)}
+                placeholder="e.g. mm/dd/yyyy"
+                className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
+              />
+              <p className="mt-2 text-[11px] text-zd-teal/70">
+                Please enter the format you use when adding SC notes in
+                Salesforce. This is necessary to accurately calculate update
+                periods. <br />
+                Example: mm/dd/yyyy, mm.dd.yy, etc
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
@@ -236,7 +560,9 @@ function SettingsPage() {
               onChange={(e) => setTimezone(e.target.value)}
               className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
             >
-              {TIMEZONE_OPTIONS.some((option) => option.value === timezone) ? null : (
+              {TIMEZONE_OPTIONS.some(
+                (option) => option.value === timezone,
+              ) ? null : (
                 <option value={timezone}>{timezone}</option>
               )}
               {TIMEZONE_OPTIONS.map((option) => (
@@ -245,7 +571,6 @@ function SettingsPage() {
                 </option>
               ))}
             </select>
-  
           </div>
 
           <div className="pt-2 flex items-center justify-end gap-3">
@@ -261,300 +586,26 @@ function SettingsPage() {
           </div>
         </form>
 
-        <form
-          onSubmit={handleScopeSubmit}
-          className="bg-white border border-zd-border rounded p-6 space-y-5"
-        >
-          <h2 className="text-sm font-semibold text-zd-dark">Opportunity Scope</h2>
+        {isManager ? (
+          <>
+            {punchListForm}
 
-          {isManager && (
-            <div>
-              <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
-                Sales Engineers
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="email"
-                  value={scEmailInput}
-                  onChange={(e) => setScEmailInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === ",") {
-                      e.preventDefault();
-                      addScEmail();
-                    }
-                  }}
-                  placeholder="awesome.se@zendesk.com"
-                  className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
-                />
-                <button
-                  type="button"
-                  onClick={addScEmail}
-                  disabled={!scEmailInput.trim()}
-                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
-              {scEmails.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {scEmails.map((email) => (
-                    <span
-                      key={email}
-                      className="inline-flex items-center gap-1.5 bg-zd-bg border border-zd-border rounded px-2 py-1 text-xs text-zd-dark"
-                    >
-                      {email}
-                      <button
-                        type="button"
-                        onClick={() => removeScEmail(email)}
-                        className="text-zd-teal/60 hover:text-zd-dark"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <p className="mt-2 text-[11px] text-zd-teal/70">
-                Fetch opportunities for these SEs.
-              </p>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
-              ARR Minimum
-            </label>
-            <div className="flex items-center gap-1 max-w-[200px]">
-              <span className="text-sm text-zd-teal/50">$</span>
-              <input
-                type="number"
-                min={0}
-                value={arrThreshold}
-                onChange={(e) => setArrThreshold(e.target.value)}
-                className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
-              Close Date Range
-            </label>
-
-            <select
-              value={closeDatePreset}
-              onChange={(e) => setCloseDatePreset(e.target.value as CloseDatePreset)}
-              className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green mb-2"
-            >
-              <option value="current_quarter">Current Fiscal Quarter</option>
-              <option value="current_and_next_quarter">Current + Next Fiscal Quarter</option>
-              <option value="fiscal_year">Fiscal Year</option>
-              <option value="custom">Custom</option>
-            </select>
-
-            {closeDatePreset === "custom" ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={closeDateFrom}
-                  onChange={(e) => setCloseDateFrom(e.target.value)}
-                  className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-                />
-                <span className="text-zd-teal/50 text-xs">to</span>
-                <input
-                  type="date"
-                  value={closeDateTo}
-                  onChange={(e) => setCloseDateTo(e.target.value)}
-                  className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-                />
-              </div>
-            ) : (
-              <p className="text-xs text-zd-teal/70">
-                From {resolvedRange.from} to {resolvedRange.to}
-              </p>
-            )}
-          </div>
-
-          <div className="pt-2 flex items-center justify-end gap-3">
-            {scopeSaved && (
-              <span className="text-xs text-zd-green font-semibold">Saved</span>
-            )}
             <button
-              type="submit"
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+              type="button"
+              onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-zd-teal/70 hover:text-zd-dark transition-colors"
             >
-              Save
+              Advanced Settings
             </button>
-          </div>
-        </form>
 
-        <form
-          onSubmit={handlePunchListSubmit}
-          className="bg-white border border-zd-border rounded p-6 space-y-5"
-        >
-          <h2 className="text-sm font-semibold text-zd-dark">Punch List Criteria</h2>
-          <p className="text-[11px] text-zd-teal/70">
-            Choose which criteria flag an opportunity on your Punch List.
-          </p>
-
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.staleNotesEnabled}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    staleNotesEnabled: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>Notes not updated in</span>
-              <input
-                type="number"
-                min={1}
-                value={punchListSettings.staleNotesDays}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    staleNotesDays: Number(e.target.value) || 1,
-                  })
-                }
-                className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              />
-              <span>+ days</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.noScNotesEnabled}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    noScNotesEnabled: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>No SE notes</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.noEngagementTypeEnabled}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    noEngagementTypeEnabled: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>No SE engagement type</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.dScoreBelowEnabled}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    dScoreBelowEnabled: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>D-Score is below</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={punchListSettings.dScoreBelowThreshold}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    dScoreBelowThreshold: Number(e.target.value) || 0,
-                  })
-                }
-                className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              />
-            </label>
-
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.dScoreAboveEnabled}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    dScoreAboveEnabled: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>D-Score is above</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={punchListSettings.dScoreAboveThreshold}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    dScoreAboveThreshold: Number(e.target.value) || 0,
-                  })
-                }
-                className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              />
-            </label>
-
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.includeHiddenOpps}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    includeHiddenOpps: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>Include hidden opps</span>
-            </label>
-
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={punchListSettings.includeClosedOpps}
-                onChange={(e) =>
-                  setPunchListSettings({
-                    ...punchListSettings,
-                    includeClosedOpps: e.target.checked,
-                  })
-                }
-                className="w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>Show closed opps (Won/Lost)</span>
-            </label>
-          </div>
-
-          <div className="pt-2 flex items-center justify-end gap-3">
-            {punchListSaved && (
-              <span className="text-xs text-zd-green font-semibold">Saved</span>
-            )}
-            <button
-              type="submit"
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
-            >
-              Save
-            </button>
-          </div>
-        </form>
+            {showAdvancedSettings && oppScopeForm}
+          </>
+        ) : (
+          <>
+            {oppScopeForm}
+            {punchListForm}
+          </>
+        )}
       </main>
     </div>
   );
