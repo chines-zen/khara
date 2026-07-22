@@ -53,11 +53,11 @@ export function buildPunchList(
       }
 
       if (settings.noScNotesEnabled && !opp.scNotes?.trim()) {
-        reasons.push("No SC Notes");
+        reasons.push("No SE Notes");
       }
 
       if (settings.noEngagementTypeEnabled && !opp.scEngagementType?.trim()) {
-        reasons.push("No SC Engagement Type");
+        reasons.push("No SE Engagement Type");
       }
 
       return { opp, reasons };

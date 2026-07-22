@@ -438,7 +438,7 @@ function SettingsPage() {
                 }
                 className="w-3.5 h-3.5 cursor-pointer"
               />
-              <span>No SC notes</span>
+              <span>No SE notes</span>
             </label>
 
             <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -453,7 +453,7 @@ function SettingsPage() {
                 }
                 className="w-3.5 h-3.5 cursor-pointer"
               />
-              <span>No SC engagement type</span>
+              <span>No SE engagement type</span>
             </label>
 
             <label className="flex items-center gap-2 text-sm cursor-pointer">

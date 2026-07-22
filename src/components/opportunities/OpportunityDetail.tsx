@@ -246,7 +246,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
             <dd className="text-sm font-medium text-zd-dark mt-1">{opp.account}</dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Last SC Update</dt>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Last SE Update</dt>
             <dd className="text-sm font-medium text-zd-dark mt-1">
               {hasParsingError ? (
                 <button
@@ -305,8 +305,8 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
               <div>
                 <h3 className="text-lg font-bold text-zd-dark mb-2">Date Parsing Error</h3>
                 <p className="text-sm text-zd-dark/80 mb-3">
-                  The "Last SC Update" field is automatically calculated by scanning the SC Notes for dates.
-                  No valid date format was found in the current SC Notes.
+                  The "Last SE Update" field is automatically calculated by scanning the SC Notes for dates.
+                  No valid date format was found in the current SE Notes.
                 </p>
                 <div className="bg-zd-bg rounded p-3 mb-3">
                   <p className="text-xs font-bold text-zd-teal/60 uppercase tracking-wider mb-2">Supported Date Formats</p>
@@ -381,9 +381,9 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
         {/* Two columns of notes */}
         <div className="grid grid-cols-2 gap-6">
           <div className="space-y-4">
-            <NoteBlock label="SC Notes" body={opp.scNotes} />
-            <NoteBlock label="SC Manager Notes" body={opp.scManagerNotes} />
-            <NoteBlock label="SC Engagement Type" body={engagementType} />
+            <NoteBlock label="SE Notes" body={opp.scNotes} />
+            <NoteBlock label="SE Manager Notes" body={opp.scManagerNotes} />
+            <NoteBlock label="SE Engagement Type" body={engagementType} />
           </div>
           <div className="space-y-4">
             <NoteBlock label="AE Notes" body={aeNotes} />

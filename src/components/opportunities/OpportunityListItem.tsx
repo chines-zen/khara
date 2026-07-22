@@ -31,7 +31,7 @@ function UpdatedChip({ date, scNotes, stage }: { date: string | null; scNotes: s
         className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 bg-orange-100 text-orange-800"
         title={isEmptyNotes ? "No SC Notes found" : "Date parsing error - no standard date format found"}
       >
-        ⚠️ {isEmptyNotes ? "no sc notes" : "parsing error"}
+        ⚠️ {isEmptyNotes ? "no se notes" : "parsing error"}
       </span>
     );
   }
