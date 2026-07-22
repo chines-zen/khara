@@ -351,8 +351,121 @@ function DashboardPage() {
           </div>
         </div>
 
+        {isManager && <SeTotalsTable opps={filtered} />}
+
         <SortableOppTable opps={filtered} isManager={isManager} />
       </main>
+    </div>
+  );
+}
+
+type SeTotalsRow = { se: string; arr: number; oppCount: number };
+type SeTotalsSortKey = "se" | "arr" | "oppCount";
+
+const SE_TOTALS_COLUMNS: { key: SeTotalsSortKey; label: string; align?: "right" }[] = [
+  { key: "se", label: "SE" },
+  { key: "arr", label: "ARR", align: "right" },
+  { key: "oppCount", label: "Opp", align: "right" },
+];
+
+function buildSeTotals(opps: Opportunity[]): SeTotalsRow[] {
+  const bySe = new Map<string, SeTotalsRow>();
+  opps.forEach((o) => {
+    const se = o.nameOfSc ?? "Unassigned";
+    const row = bySe.get(se) ?? { se, arr: 0, oppCount: 0 };
+    row.arr += o.amount;
+    row.oppCount += 1;
+    bySe.set(se, row);
+  });
+  return Array.from(bySe.values());
+}
+
+function SeTotalsTable({ opps }: { opps: Opportunity[] }) {
+  const [sortKey, setSortKey] = useState<SeTotalsSortKey>("arr");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const rows = useMemo(() => {
+    const list = buildSeTotals(opps);
+    list.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const cmp = typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [opps, sortKey, sortDir]);
+
+  const toggleSort = (key: SeTotalsSortKey) => {
+    if (key === sortKey) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "se" ? "asc" : "desc");
+    }
+  };
+
+  return (
+    <div className="bg-white border border-zd-border rounded overflow-hidden">
+      <div className="px-4 py-3 border-b border-zd-border flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-zd-dark">SE Totals</h2>
+        <span className="text-[11px] text-zd-teal/60 font-mono">
+          {rows.length} {rows.length === 1 ? "SE" : "SEs"}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-zd-bg/50 border-b border-zd-border">
+            <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+              {SE_TOTALS_COLUMNS.map((col) => {
+                const active = sortKey === col.key;
+                const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+                return (
+                  <th
+                    key={col.key}
+                    className={`px-4 py-2 ${col.align === "right" ? "text-right" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(col.key)}
+                      className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-zd-dark transition-colors ${
+                        active ? "text-zd-dark" : ""
+                      } ${col.align === "right" ? "flex-row-reverse" : ""}`}
+                    >
+                      <span>{col.label}</span>
+                      <Icon className={`size-3 ${active ? "opacity-100" : "opacity-40"}`} />
+                    </button>
+                  </th>
+                );
+              })}
+              <th className="px-4 py-2">Activity</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zd-border">
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-zd-teal/50">
+                  No opportunities match the current filters.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.se}>
+                  <td className="px-4 py-2 font-medium text-zd-dark">{row.se}</td>
+                  <td className="px-4 py-2 text-right font-mono text-zd-dark">
+                    {fmtCompact(row.arr)}
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-zd-teal/90">
+                    {row.oppCount}
+                  </td>
+                  <td className="px-4 py-2 text-zd-teal/40">—</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
