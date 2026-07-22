@@ -131,6 +131,12 @@ function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    if (showAdvancedSettings) {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    }
+  }, [showAdvancedSettings]);
+
+  useEffect(() => {
     fetchUserPreference<PunchListSettings>("punchListSettings").then(
       (saved) => {
         if (saved)
