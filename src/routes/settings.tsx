@@ -23,6 +23,15 @@ import {
   DEFAULT_PUNCH_LIST_SETTINGS,
   type PunchListSettings,
 } from "@/lib/punch-list";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+const CURIOUS_CLICKERS_ENDPOINT =
+  "https://6a61156cda10c59c180960b2.mockapi.io/curiousClickers";
 
 const TIMEZONE_OPTIONS = [
   { value: "America/Los_Angeles", label: "Pacific Time (US & Canada)" },
@@ -86,6 +95,8 @@ function SettingsPage() {
   );
   const [punchListSaved, setPunchListSaved] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [showHallOfShame, setShowHallOfShame] = useState(false);
 
   useEffect(() => {
     fetchUserPreference<string>("preferredName").then((savedName) => {
@@ -126,7 +137,10 @@ function SettingsPage() {
   useEffect(() => {
     fetch("/api/me", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((me) => setIsManager(Boolean(me?.isManager)))
+      .then((me) => {
+        setIsManager(Boolean(me?.isManager));
+        setUserEmail(me?.email ?? "");
+      })
       .catch(() => setIsManager(false));
   }, []);
 
@@ -205,6 +219,15 @@ function SettingsPage() {
 
   const removeScEmail = (email: string) => {
     setScEmails(scEmails.filter((e) => e !== email));
+  };
+
+  const handleCuriousClick = () => {
+    setShowHallOfShame(true);
+    fetch(CURIOUS_CLICKERS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: userEmail }),
+    }).catch(() => {});
   };
 
   const handlePunchListSubmit = async (e: React.FormEvent) => {
@@ -607,29 +630,43 @@ function SettingsPage() {
           </div>
         </form>
 
-        {isManager ? (
-          <>
-            {punchListForm}
+        {punchListForm}
 
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
-              >
-                Advanced Settings
-              </button>
-            </div>
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+            className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+          >
+            Advanced Settings
+          </button>
+        </div>
 
-            {showAdvancedSettings && oppScopeForm}
-          </>
-        ) : (
-          <>
-            {oppScopeForm}
-            {punchListForm}
-          </>
-        )}
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={handleCuriousClick}
+            className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded hover:opacity-90 transition-opacity"
+          >
+            Do Not Click
+          </button>
+        </div>
+
+        {showAdvancedSettings && oppScopeForm}
       </main>
+
+      <Dialog open={showHallOfShame} onOpenChange={setShowHallOfShame}>
+        <DialogContent className="bg-white border-zd-border text-zd-dark sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-zd-dark">You dirty dog!</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-zd-dark">
+            You are a curious one (which is probably why you are a great SE!),
+            but you also have earned yourself a place on Chad's hall of{" "}
+            <span className="line-through">shame</span> curiosity. Congrats!
+          </p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
