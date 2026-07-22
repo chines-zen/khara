@@ -5,6 +5,10 @@ export type PunchListSettings = {
   staleNotesDays: number;
   noScNotesEnabled: boolean;
   noEngagementTypeEnabled: boolean;
+  dScoreBelowEnabled: boolean;
+  dScoreBelowThreshold: number;
+  dScoreAboveEnabled: boolean;
+  dScoreAboveThreshold: number;
   includeHiddenOpps: boolean;
   includeClosedOpps: boolean;
 };
@@ -14,6 +18,10 @@ export const DEFAULT_PUNCH_LIST_SETTINGS: PunchListSettings = {
   staleNotesDays: 14,
   noScNotesEnabled: true,
   noEngagementTypeEnabled: true,
+  dScoreBelowEnabled: false,
+  dScoreBelowThreshold: 5,
+  dScoreAboveEnabled: false,
+  dScoreAboveThreshold: 25,
   includeHiddenOpps: false,
   includeClosedOpps: false,
 };
@@ -58,6 +66,14 @@ export function buildPunchList(
 
       if (settings.noEngagementTypeEnabled && !opp.scEngagementType?.trim()) {
         reasons.push("No SE Engagement Type");
+      }
+
+      if (settings.dScoreBelowEnabled && opp.dScore < settings.dScoreBelowThreshold) {
+        reasons.push(`D-Score below ${settings.dScoreBelowThreshold}`);
+      }
+
+      if (settings.dScoreAboveEnabled && opp.dScore > settings.dScoreAboveThreshold) {
+        reasons.push(`D-Score above ${settings.dScoreAboveThreshold}`);
       }
 
       return { opp, reasons };

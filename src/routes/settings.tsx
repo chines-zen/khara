@@ -459,6 +459,62 @@ function SettingsPage() {
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
+                checked={punchListSettings.dScoreBelowEnabled}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    dScoreBelowEnabled: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>D-Score is below</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={punchListSettings.dScoreBelowThreshold}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    dScoreBelowThreshold: Number(e.target.value) || 0,
+                  })
+                }
+                className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={punchListSettings.dScoreAboveEnabled}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    dScoreAboveEnabled: e.target.checked,
+                  })
+                }
+                className="w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>D-Score is above</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={punchListSettings.dScoreAboveThreshold}
+                onChange={(e) =>
+                  setPunchListSettings({
+                    ...punchListSettings,
+                    dScoreAboveThreshold: Number(e.target.value) || 0,
+                  })
+                }
+                className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
                 checked={punchListSettings.includeHiddenOpps}
                 onChange={(e) =>
                   setPunchListSettings({
