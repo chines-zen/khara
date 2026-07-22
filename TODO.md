@@ -25,3 +25,4 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done
 - [x] add "Last Data Sync:" (2026-07-21)
 - [x] Fix AI summary (include token handling) (2026-07-21)
 - [x] Manager Mode (2026-07-21)
+- [x] D-Score history: Snowflake fetch + Postgres cache for Dispassionate Reviews (2026-07-22)

@@ -196,6 +196,82 @@ export async function initializeDatabase() {
       )
     `);
 
+    // Dispassionate reviews (D-Score history) - local mirror of Snowflake's
+    // CLEANSED.SALESFORCE.SALESFORCE_DISPASSIONATE_REVIEW_C_SCD2 view. One row
+    // per review record (an opportunity has multiple reviews over time). This is
+    // deliberately a flat per-row mirror (like `activities`), NOT a per-user JSONB
+    // blob (like sc_opportunities_cache): the intended use case is time-series -
+    // comparing D-Score dimensions across reviews per opp - which needs row-level
+    // SQL (sort/filter/delta), and reviews are shared reference data about an opp
+    // rather than something scoped per requesting app user.
+    // Score columns are the source's categorical VARCHAR values (leading digit is
+    // the sub-score, e.g. "2 - 71% to 85%; ...").
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS dispassionate_reviews (
+        id VARCHAR(255) PRIMARY KEY,
+        opportunity_id VARCHAR(255) NOT NULL,
+        name TEXT,
+        is_deleted BOOLEAN,
+        created_by_id VARCHAR(255),
+        last_modified_by_id VARCHAR(255),
+        last_activity_date DATE,
+        discovery_score TEXT,
+        solution_fit_score TEXT,
+        architecture_score TEXT,
+        integration_score TEXT,
+        security_score TEXT,
+        net_value_score TEXT,
+        competitiveness_score TEXT,
+        partner_score TEXT,
+        it_alignment_score TEXT,
+        exec_goals_score TEXT,
+        services_score TEXT,
+        advanced_demo_score TEXT,
+        testing_access_score TEXT,
+        discovery_score_notes TEXT,
+        solution_fit_score_notes TEXT,
+        architecture_score_notes TEXT,
+        integration_score_notes TEXT,
+        security_score_notes TEXT,
+        net_value_score_notes TEXT,
+        other_competitors_score_notes TEXT,
+        partner_score_notes TEXT,
+        it_alignment_score_notes TEXT,
+        exec_goals_score_notes TEXT,
+        services_score_notes TEXT,
+        advanced_demo_score_notes TEXT,
+        testing_access_score_notes TEXT,
+        valid_from_timestamp TIMESTAMP,
+        valid_to_timestamp TIMESTAMP,
+        summed_d_score INTEGER,
+        synced_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // App-computed rollup: sum of the leading digit of each categorical score
+    // dimension. Added via ALTER for DBs created before this column existed.
+    await client.query(`
+      ALTER TABLE dispassionate_reviews ADD COLUMN IF NOT EXISTS summed_d_score INTEGER
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_dispassionate_reviews_opportunity_id ON dispassionate_reviews(opportunity_id)
+    `);
+
+    // Composite index for the common "history for this opp, ordered by review time" read
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_dispassionate_reviews_opp_valid_from ON dispassionate_reviews(opportunity_id, valid_from_timestamp)
+    `);
+
+    // Tracks the last Snowflake->Postgres sync per opportunity so each opp's TTL
+    // is independent (mirrors activities_sync_meta, keyed by opportunity_id).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS dispassionate_reviews_sync_meta (
+        opportunity_id VARCHAR(255) PRIMARY KEY,
+        last_synced_at TIMESTAMP NOT NULL
+      )
+    `);
+
     await client.query('COMMIT');
 
     console.log('✅ Database tables initialized successfully');

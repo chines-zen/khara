@@ -537,3 +537,81 @@ WHERE CREATED_BY_ID IN (${createdByIdList})
 QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) = 1
 `;
 }
+
+/**
+ * Build query for fetching Dispassionate Review (D-Score) records for a set of
+ * opportunities. Each opportunity can have MULTIPLE review records over time
+ * (one per D-Score review event), so this returns one row per review, not per opp.
+ *
+ * Source: CLEANSED.SALESFORCE.SALESFORCE_DISPASSIONATE_REVIEW_C_SCD2 (a view over
+ * the Salesforce Dispassionate_Review__c custom object). Column names below were
+ * confirmed via DESCRIBE VIEW + live probes on 2026-07-22, not from documentation.
+ *
+ * Notable data facts verified against opp 006PC00000VkYRRYA3 (5 review records):
+ *   - ID is the Salesforce record id (18-char), unique per review — used as PK.
+ *   - OPPORTUNITY_C is the FK to the opportunity, in the 18-char CRM_OPPORTUNITY_ID
+ *     form (matches dim.CRM_OPPORTUNITY_ID), so no id normalization is needed.
+ *   - CREATED_DATE / LAST_MODIFIED_DATE / SYSTEM_MODSTAMP are NULL at the source
+ *     (masked/unsynced); VALID_FROM_TIMESTAMP is the usable per-review timestamp,
+ *     and NAME embeds the review date (e.g. "... D-Score 2026-05-26").
+ *   - The individual score dimensions are categorical VARCHAR fields whose leading
+ *     digit is the sub-score (e.g. "2 - 71% to 85%; ...").
+ *   - VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000' marks the current SCD2 version;
+ *     we filter to it so edit-history versions of the same review don't double-count.
+ * @param {string | string[]} opportunityIds - CRM opportunity id(s) (18-char form)
+ */
+export function buildDispassionateReviewsQuery(opportunityIds) {
+  const ids = Array.isArray(opportunityIds) ? opportunityIds : [opportunityIds];
+  const idList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
+
+  return `
+SELECT
+    ID AS id,
+    OPPORTUNITY_C AS opportunity_id,
+    NAME AS name,
+    IS_DELETED AS is_deleted,
+    CREATED_BY_ID AS created_by_id,
+    LAST_MODIFIED_BY_ID AS last_modified_by_id,
+    LAST_ACTIVITY_DATE AS last_activity_date,
+
+    -- Categorical score dimensions (leading digit is the sub-score)
+    HAVE_WE_COMPLETED_APPROPRIATE_DISCOVERY_C AS discovery_score,
+    LEVEL_OF_FUNCTIONAL_FIT_TO_REQUIREMENTS_C AS solution_fit_score,
+    HAVE_WE_ARCHITECTED_THE_FULL_SOLUTION_C AS architecture_score,
+    COMPLEXITY_OF_INTEGRATION_REQUIREMENTS_C AS integration_score,
+    ENGAGEMENT_OF_CUSTOMER_SECURITY_TEAM_C AS security_score,
+    BUSINESS_CASE_ROI_ANALYSIS_COMPLETED_C AS net_value_score,
+    COMPETITIVENESS_AGAINST_TECH_FUNCT_REQ_S_C AS competitiveness_score,
+    HOW_MANY_TECH_ALLIANCE_PARTNERS_NEEDED_C AS partner_score,
+    HOW_WELL_ENGAGED_ALIGNED_ARE_WE_TO_IT_C AS it_alignment_score,
+    KEY_GOALS_FOR_CUST_S_EXEC_STAKEHOLDERS_C AS exec_goals_score,
+    STAGE_OF_SERVICES_SCOPING_C AS services_score,
+    STATUS_OF_ADVANCED_CUSTOM_DEMO_C AS advanced_demo_score,
+    TYPE_OF_HANDS_ON_ACCESS_BEING_PROVIDED_C AS testing_access_score,
+
+    -- Free-text notes per score dimension
+    DISCOVERY_SCORE_NOTES_C AS discovery_score_notes,
+    SOLUTION_FIT_SCORE_NOTES_C AS solution_fit_score_notes,
+    ARCHITECTURE_SCORE_NOTES_C AS architecture_score_notes,
+    INTEGRATION_SCORE_NOTES_C AS integration_score_notes,
+    SECURITY_SCORE_NOTES_C AS security_score_notes,
+    NET_VALUE_SCORE_NOTES_C AS net_value_score_notes,
+    OTHER_COMPETITORS_SCORE_NOTES_C AS other_competitors_score_notes,
+    PARTNER_SCORE_NOTES_C AS partner_score_notes,
+    IT_ALIGNMENT_SCORE_NOTES_C AS it_alignment_score_notes,
+    EXEC_GOALS_SCORE_NOTES_C AS exec_goals_score_notes,
+    SERVICES_SCORE_NOTES_C AS services_score_notes,
+    ADVANCED_DEMO_SCORE_NOTES_C AS advanced_demo_score_notes,
+    TESTING_ACCESS_SCORE_NOTES_C AS testing_access_score_notes,
+
+    -- SCD2 versioning timestamps (VALID_FROM is the usable per-review timestamp)
+    VALID_FROM_TIMESTAMP AS valid_from_timestamp,
+    VALID_TO_TIMESTAMP AS valid_to_timestamp
+FROM CLEANSED.SALESFORCE.SALESFORCE_DISPASSIONATE_REVIEW_C_SCD2
+WHERE OPPORTUNITY_C IN (${idList})
+  -- Current SCD2 version only (avoid double-counting edit-history versions)
+  AND VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
+  AND IS_DELETED = FALSE
+ORDER BY OPPORTUNITY_C, VALID_FROM_TIMESTAMP
+`;
+}
