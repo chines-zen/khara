@@ -6,6 +6,7 @@ import { usePreferredName, useTimezone } from "@/lib/preferences";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
+import { useActivitiesEnabled } from "@/hooks/use-activities-enabled";
 import {
   buildPunchList,
   DEFAULT_PUNCH_LIST_SETTINGS,
@@ -32,6 +33,7 @@ export function AppNav() {
   const linkBase = "px-[15px] py-[5px] text-[15px] font-medium";
   const preferredName = usePreferredName();
   const timezone = useTimezone();
+  const activitiesEnabled = useActivitiesEnabled();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
@@ -39,9 +41,12 @@ export function AppNav() {
   );
 
   useEffect(() => {
-    fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
-      if (saved) setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
-    });
+    fetchUserPreference<PunchListSettings>("punchListSettings").then(
+      (saved) => {
+        if (saved)
+          setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
+      },
+    );
   }, []);
 
   const { data } = useQuery({
@@ -56,7 +61,9 @@ export function AppNav() {
   });
 
   const punchListCount = useMemo(
-    () => buildPunchList(data?.opportunities ?? [], hiddenIds, punchListSettings).length,
+    () =>
+      buildPunchList(data?.opportunities ?? [], hiddenIds, punchListSettings)
+        .length,
     [data?.opportunities, hiddenIds, punchListSettings],
   );
 
@@ -84,24 +91,41 @@ export function AppNav() {
             to="/"
             activeOptions={{ exact: true }}
             className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{ className: `${linkBase} text-white border-b-2 border-zd-green` }}
+            activeProps={{
+              className: `${linkBase} text-white border-b-2 border-zd-green`,
+            }}
           >
             Dashboard
           </Link>
           <Link
             to="/opportunities"
             className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{ className: `${linkBase} text-white border-b-2 border-zd-green` }}
+            activeProps={{
+              className: `${linkBase} text-white border-b-2 border-zd-green`,
+            }}
           >
             Opportunities
           </Link>
           <Link
             to="/punch-list"
             className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{ className: `${linkBase} text-white border-b-2 border-zd-green` }}
+            activeProps={{
+              className: `${linkBase} text-white border-b-2 border-zd-green`,
+            }}
           >
             Punch List{punchListCount > 0 ? ` (${punchListCount})` : ""}
           </Link>
+          {activitiesEnabled && (
+            <Link
+              to="/activities"
+              className={`${linkBase} text-white/70 hover:text-white`}
+              activeProps={{
+                className: `${linkBase} text-white border-b-2 border-zd-green`,
+              }}
+            >
+              Activities
+            </Link>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-[15px]">
@@ -120,7 +144,9 @@ export function AppNav() {
           title="Refresh Data"
           className="text-white/70 hover:text-white transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`size-5 ${isRefreshing ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`size-5 ${isRefreshing ? "animate-spin" : ""}`}
+          />
         </button>
         <Link
           to="/settings"
@@ -133,7 +159,6 @@ export function AppNav() {
         <span className="text-white/80 text-[15px] font-medium">
           {preferredName ? `Hi, ${preferredName}!` : "Hi there!"}
         </span>
-
       </div>
     </nav>
   );

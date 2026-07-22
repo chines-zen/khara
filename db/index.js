@@ -141,6 +141,61 @@ export async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_sc_cache_expires ON sc_opportunities_cache(expires_at)
     `);
 
+    // Activities - local mirror of Snowflake's SA_ACTIVITY_DAILY_SNAPSHOT,
+    // deduped to one row per activity id (see services/activities-cache.js)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS activities (
+        id VARCHAR(255) PRIMARY KEY,
+        account_id VARCHAR(255),
+        account_name VARCHAR(500),
+        activity_date DATE,
+        activity_month DATE,
+        activity_year_quarter VARCHAR(10),
+        activity_year_month VARCHAR(10),
+        subject TEXT,
+        type VARCHAR(100),
+        sub_type VARCHAR(200),
+        duration_hours NUMERIC(6,2),
+        owner_id VARCHAR(255),
+        owner_name VARCHAR(255),
+        owner_role VARCHAR(255),
+        created_by_id VARCHAR(255),
+        created_by_name VARCHAR(255),
+        whatid VARCHAR(255),
+        whatid_type VARCHAR(50),
+        activity_match_opp_name TEXT,
+        activity_match_account_name TEXT,
+        is_sales_activity BOOLEAN,
+        source_snapshot_date DATE,
+        synced_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_activities_created_by_id ON activities(created_by_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_activities_activity_month ON activities(activity_month)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_activities_type ON activities(type)
+    `);
+
+    // Tracks the last Snowflake->Postgres sync per SE (scoped by who created
+    // the activity record, not who it's assigned to - see services/activities-cache.js),
+    // so a manager syncing SE A's activities doesn't mark SE B's mirror rows
+    // fresh too. Each created_by_id's TTL is independent, mirroring
+    // sc_opportunities_cache but keyed by the mirrored SE rather than the
+    // requesting app user.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS activities_sync_meta (
+        created_by_id VARCHAR(255) PRIMARY KEY,
+        last_synced_at TIMESTAMP NOT NULL
+      )
+    `);
+
     await client.query('COMMIT');
 
     console.log('✅ Database tables initialized successfully');

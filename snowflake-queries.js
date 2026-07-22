@@ -488,3 +488,52 @@ WHERE dim.RUN_DATE = (
 ORDER BY stg.NAME
 `;
 }
+
+/**
+ * Build query for fetching SE activities (SA_ACTIVITY_DAILY_SNAPSHOT), deduped to
+ * one row per activity ID (the source table has one row per SOURCE_SNAPSHOT_DATE)
+ * and scoped to a date range and set of CREATED_BY USER_IDs.
+ *
+ * Scoped by CREATED_BY_ID (who logged the activity), not OWNER_ID (who it's
+ * assigned to) - the two can differ (e.g. an admin logging an activity on an
+ * SE's behalf), and "SE activity logged" should reflect who did the logging.
+ * @param {string[]} createdByIds - Snowflake USER_ID(s) of the SE(s) to scope to
+ * @param {{ fromDate: string, toDate: string }} range - ISO dates bounding ACTIVITY_DATE
+ */
+export function buildActivitiesQuery(createdByIds, range = {}) {
+  const ids = Array.isArray(createdByIds) ? createdByIds : [createdByIds];
+  const createdByIdList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
+  const { fromDate, toDate } = range;
+  const fromEscaped = fromDate.replace(/'/g, "''");
+  const toEscaped = toDate.replace(/'/g, "''");
+
+  return `
+SELECT
+    ID AS id,
+    ACCOUNTID AS account_id,
+    ACCOUNT_NAME AS account_name,
+    ACTIVITY_DATE AS activity_date,
+    ACTIVITY_MONTH AS activity_month,
+    ACTIVITY_YEAR_QUARTER AS activity_year_quarter,
+    ACTIVITY_YEAR_MONTH AS activity_year_month,
+    SUBJECT AS subject,
+    TYPE AS type,
+    SUB_TYPE AS sub_type,
+    DURATION_OF_HOURS AS duration_hours,
+    OWNER_ID AS owner_id,
+    OWNER_NAME_CLEAN AS owner_name,
+    OWNER_ROLE AS owner_role,
+    CREATED_BY_ID AS created_by_id,
+    CREATED_BY_NAME AS created_by_name,
+    WHATID AS whatid,
+    WHATID_TYPE AS whatid_type,
+    ACTIVITY_MATCH_OPP_NAME AS activity_match_opp_name,
+    ACTIVITY_MATCH_ACCOUNT_NAME AS activity_match_account_name,
+    IS_SALES_ACTIVITY AS is_sales_activity,
+    SOURCE_SNAPSHOT_DATE AS source_snapshot_date
+FROM FUNCTIONAL.GTM_SALES_OPS.SA_ACTIVITY_DAILY_SNAPSHOT
+WHERE CREATED_BY_ID IN (${createdByIdList})
+  AND ACTIVITY_DATE BETWEEN '${fromEscaped}' AND '${toEscaped}'
+QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) = 1
+`;
+}

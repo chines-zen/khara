@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  ChevronDown,
+} from "lucide-react";
 
 import {
   BarChart,
@@ -19,7 +25,11 @@ import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { useIsManager } from "@/hooks/use-is-manager";
 import { sfRecordUrl } from "@/lib/sfdc";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   DashboardFilterBar,
   DEFAULT_DASHBOARD_FILTERS,
@@ -65,22 +75,30 @@ const fmtDate = (iso: string) => {
   });
 };
 
-
-function applyFilters(opportunities: Opportunity[], filters: DashboardFilters): Opportunity[] {
+function applyFilters(
+  opportunities: Opportunity[],
+  filters: DashboardFilters,
+): Opportunity[] {
   const minArr = filters.arrMin === "" ? null : Number(filters.arrMin);
   return opportunities.filter((o) => {
-    if (filters.stages.length && !filters.stages.includes(o.stage)) return false;
-    if (filters.owners.length && !filters.owners.includes(o.owner)) return false;
-    if (filters.ses.length && (!o.nameOfSc || !filters.ses.includes(o.nameOfSc))) return false;
+    if (filters.stages.length && !filters.stages.includes(o.stage))
+      return false;
+    if (filters.owners.length && !filters.owners.includes(o.owner))
+      return false;
+    if (
+      filters.ses.length &&
+      (!o.nameOfSc || !filters.ses.includes(o.nameOfSc))
+    )
+      return false;
     if (filters.closeMonths.length) {
       const monthKey = o.closeDate.slice(0, 7);
       if (!filters.closeMonths.includes(monthKey)) return false;
     }
-    if (minArr !== null && !Number.isNaN(minArr) && o.amount < minArr) return false;
+    if (minArr !== null && !Number.isNaN(minArr) && o.amount < minArr)
+      return false;
     return true;
   });
 }
-
 
 type GroupByOption = "opp" | "owner" | "stage" | "nameOfSc";
 
@@ -107,7 +125,10 @@ type ChartRow = {
   monthLabel: string;
   items: { key: string; label: string; amount: number }[];
   total: number;
-} & Record<string, number | string | { key: string; label: string; amount: number }[]>;
+} & Record<
+  string,
+  number | string | { key: string; label: string; amount: number }[]
+>;
 
 type ChartSeries = { key: string; label: string };
 
@@ -125,7 +146,8 @@ function buildChartData(
   const seriesLabels = new Map<string, string>();
   opps.forEach((o) => {
     const key = groupKeyFor(o, groupBy);
-    if (!seriesLabels.has(key)) seriesLabels.set(key, groupLabelFor(o, groupBy));
+    if (!seriesLabels.has(key))
+      seriesLabels.set(key, groupLabelFor(o, groupBy));
   });
   const series = Array.from(seriesLabels.entries())
     .map(([key, label]) => ({ key, label }))
@@ -144,7 +166,11 @@ function buildChartData(
         monthLabel: fmtMonth(month),
         total: list.reduce((s, o) => s + o.amount, 0),
         items: Array.from(groupTotals.entries())
-          .map(([key, amount]) => ({ key, label: seriesLabels.get(key) ?? key, amount }))
+          .map(([key, amount]) => ({
+            key,
+            label: seriesLabels.get(key) ?? key,
+            amount,
+          }))
           .sort((a, b) => b.amount - a.amount),
       };
       groupTotals.forEach((amount, key) => {
@@ -167,7 +193,13 @@ const STACK_COLORS = [
   "#d97757",
 ];
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+function ChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: any[];
+}) {
   if (!active || !payload || !payload.length) return null;
   const row = payload[0].payload as ChartRow;
   return (
@@ -177,7 +209,9 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
         {row.items.map((item) => (
           <li key={item.key} className="flex justify-between gap-4">
             <span className="text-zd-teal/80 truncate">{item.label}</span>
-            <span className="font-mono text-zd-dark">{fmtCompact(item.amount)}</span>
+            <span className="font-mono text-zd-dark">
+              {fmtCompact(item.amount)}
+            </span>
           </li>
         ))}
       </ul>
@@ -190,10 +224,16 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
 }
 
 function DashboardPage() {
-  const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_DASHBOARD_FILTERS);
+  const [filters, setFilters] = useState<DashboardFilters>(
+    DEFAULT_DASHBOARD_FILTERS,
+  );
   const [groupBy, setGroupBy] = useState<GroupByOption>("owner");
   const [groupByOpen, setGroupByOpen] = useState(false);
-  const { data: loaderOpportunities, isError, error: opportunitiesError } = useQuery({
+  const {
+    data: loaderOpportunities,
+    isError,
+    error: opportunitiesError,
+  } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
     retry: false,
@@ -236,7 +276,8 @@ function DashboardPage() {
           <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
             Failed to load opportunities: {opportunitiesError.message}
             <div className="mt-1 text-red-500/70">
-              Try refreshing. If this persists, the Snowflake connection may need to be restarted.
+              Try refreshing. If this persists, the Snowflake connection may
+              need to be restarted.
             </div>
           </div>
         </main>
@@ -248,7 +289,12 @@ function DashboardPage() {
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
       <AppNav />
       <main className="p-6 space-y-6">
-        <DashboardFilterBar filters={filters} onChange={setFilters} opportunities={opportunities} isManager={isManager} />
+        <DashboardFilterBar
+          filters={filters}
+          onChange={setFilters}
+          opportunities={opportunities}
+          isManager={isManager}
+        />
 
         <div className="grid grid-cols-4 gap-4">
           <KpiCard label="Total Opportunities" value={String(kpis.total)} />
@@ -258,13 +304,23 @@ function DashboardPage() {
             accent
             delay={60}
           />
-          <KpiCard label="Pipeline Value" value={fmtCompact(kpis.pipeline)} delay={120} />
-          <KpiCard label="Win Rate" value={`${kpis.winRate.toFixed(1)}%`} delay={180} />
+          <KpiCard
+            label="Pipeline Value"
+            value={fmtCompact(kpis.pipeline)}
+            delay={120}
+          />
+          <KpiCard
+            label="Win Rate"
+            value={`${kpis.winRate.toFixed(1)}%`}
+            delay={180}
+          />
         </div>
 
         <div className="bg-white border border-zd-border rounded p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-zd-dark">ARR by Close Month</h2>
+            <h2 className="text-sm font-semibold text-zd-dark">
+              ARR by Close Month
+            </h2>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider">
@@ -292,11 +348,15 @@ function DashboardPage() {
                             setGroupByOpen(false);
                           }}
                           className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-sm rounded hover:bg-zd-bg ${
-                            active ? "text-zd-dark font-semibold" : "text-zd-teal/80"
+                            active
+                              ? "text-zd-dark font-semibold"
+                              : "text-zd-teal/80"
                           }`}
                         >
                           <span>{GROUP_BY_LABELS[opt]}</span>
-                          {active && <Check className="size-3.5 text-zd-green" />}
+                          {active && (
+                            <Check className="size-3.5 text-zd-green" />
+                          )}
                         </button>
                       );
                     })}
@@ -312,8 +372,15 @@ function DashboardPage() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#e5e7eb"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="monthLabel"
                     tick={{ fontSize: 11, fill: "#5b7a89" }}
@@ -333,7 +400,11 @@ function DashboardPage() {
                   {groupBy !== "opp" && (
                     <Legend
                       verticalAlign="bottom"
-                      wrapperStyle={{ fontSize: 11, color: "#5b7a89", paddingTop: 12 }}
+                      wrapperStyle={{
+                        fontSize: 11,
+                        color: "#5b7a89",
+                        paddingTop: 12,
+                      }}
                     />
                   )}
                   {series.map((s, idx) => (
@@ -362,7 +433,11 @@ function DashboardPage() {
 type SeTotalsRow = { se: string; arr: number; oppCount: number };
 type SeTotalsSortKey = "se" | "arr" | "oppCount";
 
-const SE_TOTALS_COLUMNS: { key: SeTotalsSortKey; label: string; align?: "right" }[] = [
+const SE_TOTALS_COLUMNS: {
+  key: SeTotalsSortKey;
+  label: string;
+  align?: "right";
+}[] = [
   { key: "se", label: "SE" },
   { key: "arr", label: "ARR", align: "right" },
   { key: "oppCount", label: "Opp", align: "right" },
@@ -389,9 +464,10 @@ function SeTotalsTable({ opps }: { opps: Opportunity[] }) {
     list.sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      const cmp = typeof av === "number" && typeof bv === "number"
-        ? av - bv
-        : String(av).localeCompare(String(bv));
+      const cmp =
+        typeof av === "number" && typeof bv === "number"
+          ? av - bv
+          : String(av).localeCompare(String(bv));
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
@@ -420,7 +496,11 @@ function SeTotalsTable({ opps }: { opps: Opportunity[] }) {
             <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
               {SE_TOTALS_COLUMNS.map((col) => {
                 const active = sortKey === col.key;
-                const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+                const Icon = active
+                  ? sortDir === "asc"
+                    ? ArrowUp
+                    : ArrowDown
+                  : ArrowUpDown;
                 return (
                   <th
                     key={col.key}
@@ -434,32 +514,37 @@ function SeTotalsTable({ opps }: { opps: Opportunity[] }) {
                       } ${col.align === "right" ? "flex-row-reverse" : ""}`}
                     >
                       <span>{col.label}</span>
-                      <Icon className={`size-3 ${active ? "opacity-100" : "opacity-40"}`} />
+                      <Icon
+                        className={`size-3 ${active ? "opacity-100" : "opacity-40"}`}
+                      />
                     </button>
                   </th>
                 );
               })}
-              <th className="px-4 py-2">Activity</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zd-border">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-zd-teal/50">
+                <td
+                  colSpan={3}
+                  className="px-4 py-8 text-center text-zd-teal/50"
+                >
                   No opportunities match the current filters.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.se}>
-                  <td className="px-4 py-2 font-medium text-zd-dark">{row.se}</td>
+                  <td className="px-4 py-2 font-medium text-zd-dark">
+                    {row.se}
+                  </td>
                   <td className="px-4 py-2 text-right font-mono text-zd-dark">
                     {fmtCompact(row.arr)}
                   </td>
                   <td className="px-4 py-2 text-right font-mono text-zd-teal/90">
                     {row.oppCount}
                   </td>
-                  <td className="px-4 py-2 text-zd-teal/40">—</td>
                 </tr>
               ))
             )}
@@ -470,7 +555,14 @@ function SeTotalsTable({ opps }: { opps: Opportunity[] }) {
   );
 }
 
-type SortKey = "name" | "account" | "nameOfSc" | "owner" | "amount" | "stage" | "closeDate";
+type SortKey =
+  | "name"
+  | "account"
+  | "nameOfSc"
+  | "owner"
+  | "amount"
+  | "stage"
+  | "closeDate";
 type SortDir = "asc" | "desc";
 
 const BASE_COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
@@ -487,7 +579,13 @@ const SE_COLUMN: { key: SortKey; label: string; align?: "right" } = {
   label: "SE",
 };
 
-function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager: boolean }) {
+function SortableOppTable({
+  opps,
+  isManager,
+}: {
+  opps: Opportunity[];
+  isManager: boolean;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("closeDate");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -537,7 +635,11 @@ function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager:
             <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
               {columns.map((col) => {
                 const active = sortKey === col.key;
-                const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+                const Icon = active
+                  ? sortDir === "asc"
+                    ? ArrowUp
+                    : ArrowDown
+                  : ArrowUpDown;
                 return (
                   <th
                     key={col.key}
@@ -551,7 +653,9 @@ function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager:
                       } ${col.align === "right" ? "flex-row-reverse" : ""}`}
                     >
                       <span>{col.label}</span>
-                      <Icon className={`size-3 ${active ? "opacity-100" : "opacity-40"}`} />
+                      <Icon
+                        className={`size-3 ${active ? "opacity-100" : "opacity-40"}`}
+                      />
                     </button>
                   </th>
                 );
@@ -561,7 +665,10 @@ function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager:
           <tbody className="divide-y divide-zd-border">
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-8 text-center text-zd-teal/50">
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-8 text-center text-zd-teal/50"
+                >
                   No opportunities match the current filters.
                 </td>
               </tr>
@@ -569,13 +676,19 @@ function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager:
               sorted.map((o) => (
                 <tr
                   key={o.id}
-                  onClick={() => window.open(sfRecordUrl(o.id), "_blank", "noopener")}
+                  onClick={() =>
+                    window.open(sfRecordUrl(o.id), "_blank", "noopener")
+                  }
                   className="cursor-pointer hover:bg-zd-bg/60 transition-colors"
                 >
-                  <td className="px-4 py-2 font-medium text-zd-dark">{o.name}</td>
+                  <td className="px-4 py-2 font-medium text-zd-dark">
+                    {o.name}
+                  </td>
                   <td className="px-4 py-2 text-zd-teal/90">{o.account}</td>
                   {isManager && (
-                    <td className="px-4 py-2 text-zd-teal/90">{o.nameOfSc ?? "—"}</td>
+                    <td className="px-4 py-2 text-zd-teal/90">
+                      {o.nameOfSc ?? "—"}
+                    </td>
                   )}
                   <td className="px-4 py-2 text-zd-teal/90">{o.owner}</td>
                   <td className="px-4 py-2 text-right font-mono text-zd-dark">
@@ -594,4 +707,3 @@ function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager:
     </div>
   );
 }
-

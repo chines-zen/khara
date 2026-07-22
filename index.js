@@ -25,6 +25,7 @@ import { createSessionMiddleware } from './middleware/session.js';
 import { getCachedSummary, getSummaryIfCached, cleanupExpiredSummaries } from './services/summary-cache.js';
 import { getHiddenOpportunities, hideOpportunity, unhideOpportunity } from './services/hidden-opportunities.js';
 import { getScOpportunities, invalidateScCache, cleanupExpiredScCache, getLastScCacheSync } from './services/sc-opportunities-cache.js';
+import { getActivities, invalidateActivitiesCache } from './services/activities-cache.js';
 import { resolveScUserId } from './services/sc-lookup.js';
 import { getEffectiveOppScope } from './services/opp-scope.js';
 
@@ -220,6 +221,7 @@ app.get('/api/health', async (req, res) => {
     postgresql: dbHealth,
     appUpdatedAt,
     devMode: process.env.DEV_MODE === 'true',
+    activitiesEnabled: process.env.ACTIVITIES_ENABLED === 'true',
     timestamp: new Date().toISOString(),
   });
 });
@@ -403,6 +405,61 @@ app.delete('/api/opportunities/my-sc-opps/cache', authenticateWithPomerium, asyn
     res.json({ success: true, message: 'SC opportunities cache cleared' });
   } catch (error) {
     console.error('Error clearing SC cache:', error);
+    res.status(500).json({ error: 'Failed to clear cache', details: error.message });
+  }
+});
+
+// GET /api/activities - Get activities for the current SE (or their team, if
+// a manager with SE scoping configured), scoped to the current fiscal year
+app.get('/api/activities', authenticateWithPomerium, async (req, res) => {
+  try {
+    if (!databaseConnected) {
+      return res.status(503).json({ error: 'Database connection not established' });
+    }
+
+    const scope = await getEffectiveOppScope(req.user.id);
+    // Sales Engineers scoping is manager-only - strip it for anyone else even
+    // if a stale preference value has it set (e.g. is_manager was revoked).
+    const scEmails = req.user.is_manager ? scope.scEmails : [];
+
+    const result = await getActivities(req.user.email, { scEmails });
+
+    res.json({
+      activities: result.activities,
+      metadata: {
+        cached: result.cached,
+        cachedAt: result.cachedAt,
+        count: result.activities.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+
+    if (error.message.includes('No Snowflake user found')) {
+      return res.status(404).json({
+        error: 'SE user not found',
+        details: error.message,
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to fetch activities',
+      details: error.message,
+    });
+  }
+});
+
+// DELETE /api/activities/cache - Force refresh activities cache
+app.delete('/api/activities/cache', authenticateWithPomerium, async (req, res) => {
+  try {
+    if (!databaseConnected) {
+      return res.status(503).json({ error: 'Database connection not established' });
+    }
+
+    await invalidateActivitiesCache();
+    res.json({ success: true, message: 'Activities cache cleared' });
+  } catch (error) {
+    console.error('Error clearing activities cache:', error);
     res.status(500).json({ error: 'Failed to clear cache', details: error.message });
   }
 });
