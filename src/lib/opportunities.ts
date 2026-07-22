@@ -9,6 +9,8 @@ export const STAGES = [
 
 export type Stage = (typeof STAGES)[number];
 
+export const CLOSED_STAGES: Stage[] = ["Won", "Lost"];
+
 export type Opportunity = {
   id: string;
   name: string;

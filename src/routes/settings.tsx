@@ -283,7 +283,7 @@ function SettingsPage() {
                       addScEmail();
                     }
                   }}
-                  placeholder="sc@example.com"
+                  placeholder="awesome.se@zendesk.com"
                   className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
                 />
                 <button

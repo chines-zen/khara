@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Opportunity } from "@/lib/opportunities";
+import { CLOSED_STAGES, type Opportunity } from "@/lib/opportunities";
 
 export type DashboardFilters = {
   stages: string[];
@@ -63,10 +63,24 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
     return Array.from(set).sort();
   }, [opportunities]);
 
+  // "Open" = any stage present in the data that isn't Won/Lost
+  const openStages = useMemo(
+    () => availableStages.filter((s) => !(CLOSED_STAGES as string[]).includes(s)),
+    [availableStages],
+  );
+
   const toggleStage = (s: string) => {
     const next = filters.stages.includes(s)
       ? filters.stages.filter((x) => x !== s)
       : [...filters.stages, s];
+    update("stages", next);
+  };
+
+  const toggleStageGroup = (group: string[]) => {
+    const allSelected = group.every((s) => filters.stages.includes(s));
+    const next = allSelected
+      ? filters.stages.filter((s) => !group.includes(s))
+      : Array.from(new Set([...filters.stages, ...group]));
     update("stages", next);
   };
 
@@ -100,6 +114,14 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
   const [monthOpen, setMonthOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
   const [seOpen, setSeOpen] = useState(false);
+  const [stageOpen, setStageOpen] = useState(false);
+
+  const stageLabel =
+    filters.stages.length === 0
+      ? "All stages"
+      : filters.stages.length === 1
+        ? filters.stages[0]
+        : `${filters.stages.length} stages`;
 
   const monthLabel =
     filters.closeMonths.length === 0
@@ -227,6 +249,71 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
 
         <div>
           <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+            Stage
+          </label>
+          <Popover open={stageOpen} onOpenChange={setStageOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+              >
+                <span className={filters.stages.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                  {stageLabel}
+                </span>
+                <span className="text-zd-teal/40 text-xs">▾</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56 p-2 max-h-80 overflow-y-auto">
+              <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                  Stages
+                </span>
+                {filters.stages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => update("stages", [])}
+                    className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                  >
+                    CLEAR
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1 pb-1 mb-1 border-b border-zd-border">
+                <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
+                  <Checkbox
+                    checked={openStages.length > 0 && openStages.every((s) => filters.stages.includes(s))}
+                    onCheckedChange={() => toggleStageGroup(openStages)}
+                  />
+                  <span>Open</span>
+                </label>
+                <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
+                  <Checkbox
+                    checked={CLOSED_STAGES.every((s) => filters.stages.includes(s))}
+                    onCheckedChange={() => toggleStageGroup(CLOSED_STAGES)}
+                  />
+                  <span>Closed</span>
+                </label>
+              </div>
+              <div className="space-y-1">
+                {availableStages.map((s) => {
+                  const checked = filters.stages.includes(s);
+                  return (
+                    <label
+                      key={s}
+                      className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                    >
+                      <Checkbox checked={checked} onCheckedChange={() => toggleStage(s)} />
+                      <span>{s}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <div>
+          <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
             Close Date
           </label>
           <Popover open={monthOpen} onOpenChange={setMonthOpen}>
@@ -298,29 +385,6 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
         >
           RESET
         </button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mr-1">
-          Stage
-        </span>
-        {availableStages.map((s) => {
-          const active = filters.stages.includes(s);
-          return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => toggleStage(s)}
-              className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-                active
-                  ? "bg-zd-teal text-white border-zd-teal"
-                  : "bg-white text-zd-teal/70 border-zd-border hover:border-zd-teal"
-              }`}
-            >
-              {s}
-            </button>
-          );
-        })}
       </div>
     </div>
   );

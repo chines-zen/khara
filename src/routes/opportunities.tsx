@@ -108,17 +108,6 @@ function applyFilters(opportunities: typeof OPPORTUNITIES, filters: Filters) {
       if (!filters.closeMonths.includes(oppMonth)) return false;
     }
 
-    // Days since update filter
-    if (filters.daysSinceMax !== "") {
-      const maxDays = Number(filters.daysSinceMax);
-      if (!isNaN(maxDays) && opp.lastUpdateDate) {
-        const daysSince = Math.floor(
-          (Date.now() - new Date(opp.lastUpdateDate + "T00:00:00").getTime()) / 86_400_000
-        );
-        if (daysSince > maxDays) return false;
-      }
-    }
-
     // ARR minimum filter
     if (filters.arrMin !== "") {
       const minArr = Number(filters.arrMin);

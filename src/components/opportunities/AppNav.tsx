@@ -44,12 +44,9 @@ export function AppNav() {
     });
   }, []);
 
-  // Observes the shared ["opportunities"] cache populated by whichever page is mounted;
-  // enabled: false means this never fetches on its own.
   const { data } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
-    enabled: false,
   });
   const lastRefreshed = formatLastRefreshed(data?.metadata?.cachedAt, timezone);
 
