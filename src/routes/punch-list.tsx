@@ -58,8 +58,8 @@ function PunchListPage() {
 
   const scopedOpportunities = useMemo(
     () =>
-      seFilters.se
-        ? opportunities.filter((o) => o.nameOfSc === seFilters.se)
+      seFilters.ses.length > 0
+        ? opportunities.filter((o) => o.nameOfSc && seFilters.ses.includes(o.nameOfSc))
         : opportunities,
     [opportunities, seFilters],
   );

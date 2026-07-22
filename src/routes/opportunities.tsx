@@ -93,12 +93,12 @@ function applyFilters(opportunities: typeof OPPORTUNITIES, filters: Filters) {
     }
 
     // Owner filter
-    if (filters.owner && opp.owner !== filters.owner) {
+    if (filters.owners.length > 0 && !filters.owners.includes(opp.owner)) {
       return false;
     }
 
     // SE filter (manager-only)
-    if (filters.se && opp.nameOfSc !== filters.se) {
+    if (filters.ses.length > 0 && (!opp.nameOfSc || !filters.ses.includes(opp.nameOfSc))) {
       return false;
     }
 
@@ -171,13 +171,29 @@ function OpportunitiesPage() {
   useEffect(() => {
     async function loadSavedFilters() {
       try {
-        const savedFilters = await fetchUserPreference<Filters>('opportunityFilters');
+        const savedFilters = await fetchUserPreference<Record<string, unknown>>('opportunityFilters');
         const savedSort = await fetchUserPreference<SortOption>('opportunitySort');
         const savedShowHidden = await fetchUserPreference<boolean>('showHiddenOpportunities');
         const savedScopeSettings = await fetchUserPreference('oppScopeSettings');
 
         if (savedFilters) {
-          setFilters(savedFilters);
+          // Migrate legacy single-value owner/se filters (pre multi-select) to arrays
+          const legacyOwner = savedFilters.owner;
+          const legacySe = savedFilters.se;
+          setFilters({
+            ...DEFAULT_FILTERS,
+            ...savedFilters,
+            owners: Array.isArray(savedFilters.owners)
+              ? savedFilters.owners
+              : typeof legacyOwner === "string" && legacyOwner
+                ? [legacyOwner]
+                : [],
+            ses: Array.isArray(savedFilters.ses)
+              ? savedFilters.ses
+              : typeof legacySe === "string" && legacySe
+                ? [legacySe]
+                : [],
+          } as Filters);
         }
         if (savedSort) {
           setSortBy(savedSort);

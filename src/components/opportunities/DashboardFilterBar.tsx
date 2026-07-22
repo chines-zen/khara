@@ -5,16 +5,16 @@ import type { Opportunity } from "@/lib/opportunities";
 
 export type DashboardFilters = {
   stages: string[];
-  owner: string;
-  se: string; // "" = all; manager-only filter
+  owners: string[];
+  ses: string[]; // [] = all; manager-only filter
   closeMonths: string[];
   arrMin: string; // threshold; filter out opps with amount < arrMin
 };
 
 export const DEFAULT_DASHBOARD_FILTERS: DashboardFilters = {
   stages: [],
-  owner: "",
-  se: "",
+  owners: [],
+  ses: [],
   closeMonths: [],
   arrMin: "",
 };
@@ -70,6 +70,20 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
     update("stages", next);
   };
 
+  const toggleOwner = (o: string) => {
+    const next = filters.owners.includes(o)
+      ? filters.owners.filter((x) => x !== o)
+      : [...filters.owners, o];
+    update("owners", next);
+  };
+
+  const toggleSe = (s: string) => {
+    const next = filters.ses.includes(s)
+      ? filters.ses.filter((x) => x !== s)
+      : [...filters.ses, s];
+    update("ses", next);
+  };
+
   const monthOptions = useMemo(() => {
     const set = new Set<string>();
     opportunities.forEach((o) => set.add(o.closeDate.slice(0, 7)));
@@ -84,6 +98,8 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
   };
 
   const [monthOpen, setMonthOpen] = useState(false);
+  const [ownerOpen, setOwnerOpen] = useState(false);
+  const [seOpen, setSeOpen] = useState(false);
 
   const monthLabel =
     filters.closeMonths.length === 0
@@ -92,6 +108,20 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
         ? MONTH_LABEL(filters.closeMonths[0])
         : `${filters.closeMonths.length} months`;
 
+  const ownerLabel =
+    filters.owners.length === 0
+      ? "All AEs"
+      : filters.owners.length === 1
+        ? filters.owners[0]
+        : `${filters.owners.length} AEs`;
+
+  const seLabel =
+    filters.ses.length === 0
+      ? "All SEs"
+      : filters.ses.length === 1
+        ? filters.ses[0]
+        : `${filters.ses.length} SEs`;
+
   return (
     <div className="bg-white border border-zd-border rounded p-4 space-y-3">
       <div className="flex flex-wrap items-end gap-3">
@@ -99,18 +129,49 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
           <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
             AE
           </label>
-          <select
-            value={filters.owner}
-            onChange={(e) => update("owner", e.target.value)}
-            className="bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-          >
-            <option value="">All AEs</option>
-            {availableOwners.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
+          <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+              >
+                <span className={filters.owners.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                  {ownerLabel}
+                </span>
+                <span className="text-zd-teal/40 text-xs">▾</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
+              <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                  AEs
+                </span>
+                {filters.owners.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => update("owners", [])}
+                    className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                  >
+                    CLEAR
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1">
+                {availableOwners.map((o) => {
+                  const checked = filters.owners.includes(o);
+                  return (
+                    <label
+                      key={o}
+                      className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                    >
+                      <Checkbox checked={checked} onCheckedChange={() => toggleOwner(o)} />
+                      <span>{o}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {isManager && (
@@ -118,18 +179,49 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
             <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
               SE
             </label>
-            <select
-              value={filters.se}
-              onChange={(e) => update("se", e.target.value)}
-              className="bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-            >
-              <option value="">All SEs</option>
-              {availableSEs.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <Popover open={seOpen} onOpenChange={setSeOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+                >
+                  <span className={filters.ses.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                    {seLabel}
+                  </span>
+                  <span className="text-zd-teal/40 text-xs">▾</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
+                <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                  <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                    SEs
+                  </span>
+                  {filters.ses.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => update("ses", [])}
+                      className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                    >
+                      CLEAR
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {availableSEs.map((s) => {
+                    const checked = filters.ses.includes(s);
+                    return (
+                      <label
+                        key={s}
+                        className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                      >
+                        <Checkbox checked={checked} onCheckedChange={() => toggleSe(s)} />
+                        <span>{s}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         )}
 

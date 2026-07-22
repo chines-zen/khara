@@ -68,8 +68,8 @@ function applyFilters(opportunities: Opportunity[], filters: DashboardFilters): 
   const minArr = filters.arrMin === "" ? null : Number(filters.arrMin);
   return opportunities.filter((o) => {
     if (filters.stages.length && !filters.stages.includes(o.stage)) return false;
-    if (filters.owner && o.owner !== filters.owner) return false;
-    if (filters.se && o.nameOfSc !== filters.se) return false;
+    if (filters.owners.length && !filters.owners.includes(o.owner)) return false;
+    if (filters.ses.length && (!o.nameOfSc || !filters.ses.includes(o.nameOfSc))) return false;
     if (filters.closeMonths.length) {
       const monthKey = o.closeDate.slice(0, 7);
       if (!filters.closeMonths.includes(monthKey)) return false;
@@ -255,16 +255,16 @@ function DashboardPage() {
           </div>
         </div>
 
-        <SortableOppTable opps={filtered} />
+        <SortableOppTable opps={filtered} isManager={isManager} />
       </main>
     </div>
   );
 }
 
-type SortKey = "name" | "account" | "owner" | "amount" | "stage" | "closeDate";
+type SortKey = "name" | "account" | "nameOfSc" | "owner" | "amount" | "stage" | "closeDate";
 type SortDir = "asc" | "desc";
 
-const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
+const BASE_COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "name", label: "Opp" },
   { key: "account", label: "Account" },
   { key: "owner", label: "AE" },
@@ -273,9 +273,24 @@ const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "closeDate", label: "Close Date" },
 ];
 
-function SortableOppTable({ opps }: { opps: Opportunity[] }) {
+const SE_COLUMN: { key: SortKey; label: string; align?: "right" } = {
+  key: "nameOfSc",
+  label: "SE",
+};
+
+function SortableOppTable({ opps, isManager }: { opps: Opportunity[]; isManager: boolean }) {
   const [sortKey, setSortKey] = useState<SortKey>("closeDate");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const columns = useMemo(() => {
+    if (!isManager) return BASE_COLUMNS;
+    const ownerIdx = BASE_COLUMNS.findIndex((c) => c.key === "owner");
+    return [
+      ...BASE_COLUMNS.slice(0, ownerIdx),
+      SE_COLUMN,
+      ...BASE_COLUMNS.slice(ownerIdx),
+    ];
+  }, [isManager]);
 
   const sorted = useMemo(() => {
     const list = [...opps];
@@ -311,7 +326,7 @@ function SortableOppTable({ opps }: { opps: Opportunity[] }) {
         <table className="w-full text-sm">
           <thead className="bg-zd-bg/50 border-b border-zd-border">
             <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-              {COLUMNS.map((col) => {
+              {columns.map((col) => {
                 const active = sortKey === col.key;
                 const Icon = active ? (sortDir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
                 return (
@@ -337,7 +352,7 @@ function SortableOppTable({ opps }: { opps: Opportunity[] }) {
           <tbody className="divide-y divide-zd-border">
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-zd-teal/50">
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-zd-teal/50">
                   No opportunities match the current filters.
                 </td>
               </tr>
@@ -350,6 +365,9 @@ function SortableOppTable({ opps }: { opps: Opportunity[] }) {
                 >
                   <td className="px-4 py-2 font-medium text-zd-dark">{o.name}</td>
                   <td className="px-4 py-2 text-zd-teal/90">{o.account}</td>
+                  {isManager && (
+                    <td className="px-4 py-2 text-zd-teal/90">{o.nameOfSc ?? "—"}</td>
+                  )}
                   <td className="px-4 py-2 text-zd-teal/90">{o.owner}</td>
                   <td className="px-4 py-2 text-right font-mono text-zd-dark">
                     {fmtCompact(o.amount)}
