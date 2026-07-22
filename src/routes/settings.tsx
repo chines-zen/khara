@@ -150,6 +150,21 @@ function SettingsPage() {
     await saveUserPreference("preferredName", preferredName.trim());
     await saveUserPreference("dateFormat", dateFormat.trim());
     await saveUserPreference("timezone", timezone);
+    if (isManager) {
+      const settings: OppScopeSettings = {
+        arrThreshold: Number(arrThreshold) || DEFAULT_ARR_THRESHOLD,
+        closeDatePreset,
+        closeDateFrom: closeDatePreset === "custom" ? closeDateFrom : null,
+        closeDateTo: closeDatePreset === "custom" ? closeDateTo : null,
+        scEmails,
+      };
+      await saveUserPreference("oppScopeSettings", settings);
+      await fetch("/api/opportunities/my-sc-opps/cache", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+    }
     queryClient.invalidateQueries({ queryKey: PREFERRED_NAME_QUERY_KEY });
     queryClient.invalidateQueries({ queryKey: TIMEZONE_QUERY_KEY });
     setSaved(true);
@@ -206,59 +221,6 @@ function SettingsPage() {
       className="bg-white border border-zd-border rounded p-6 space-y-5"
     >
       <h2 className="text-sm font-semibold text-zd-dark">Opportunity Scope</h2>
-
-      {isManager && (
-        <div>
-          <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
-            Sales Engineers
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="email"
-              value={scEmailInput}
-              onChange={(e) => setScEmailInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === ",") {
-                  e.preventDefault();
-                  addScEmail();
-                }
-              }}
-              placeholder="awesome.se@zendesk.com"
-              className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
-            />
-            <button
-              type="button"
-              onClick={addScEmail}
-              disabled={!scEmailInput.trim()}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
-            >
-              Add
-            </button>
-          </div>
-          {scEmails.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {scEmails.map((email) => (
-                <span
-                  key={email}
-                  className="inline-flex items-center gap-1.5 bg-zd-bg border border-zd-border rounded px-2 py-1 text-xs text-zd-dark"
-                >
-                  {email}
-                  <button
-                    type="button"
-                    onClick={() => removeScEmail(email)}
-                    className="text-zd-teal/60 hover:text-zd-dark"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <p className="mt-2 text-[11px] text-zd-teal/70">
-            Fetch opportunities for these SEs.
-          </p>
-        </div>
-      )}
 
       <div>
         <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
@@ -578,6 +540,59 @@ function SettingsPage() {
               ))}
             </select>
           </div>
+
+          {isManager && (
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+                Sales Engineers
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  value={scEmailInput}
+                  onChange={(e) => setScEmailInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      addScEmail();
+                    }
+                  }}
+                  placeholder="awesome.se@zendesk.com"
+                  className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
+                />
+                <button
+                  type="button"
+                  onClick={addScEmail}
+                  disabled={!scEmailInput.trim()}
+                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+              {scEmails.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {scEmails.map((email) => (
+                    <span
+                      key={email}
+                      className="inline-flex items-center gap-1.5 bg-zd-bg border border-zd-border rounded px-2 py-1 text-xs text-zd-dark"
+                    >
+                      {email}
+                      <button
+                        type="button"
+                        onClick={() => removeScEmail(email)}
+                        className="text-zd-teal/60 hover:text-zd-dark"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-zd-teal/70">
+                Fetch opportunities for these SEs.
+              </p>
+            </div>
+          )}
 
           <div className="pt-2 flex items-center justify-end gap-3">
             {saved && (

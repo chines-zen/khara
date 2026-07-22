@@ -1,7 +1,7 @@
 import { getUserPreference } from './preferences.js';
 import { resolveCloseDatePreset, resolveCloseDateRange } from '../fiscal-quarter.js';
 
-export const DEFAULT_ARR_THRESHOLD = 50000;
+export const DEFAULT_ARR_THRESHOLD = 12000;
 
 const PREFERENCE_KEY = 'oppScopeSettings';
 

@@ -126,7 +126,7 @@ export function getFiscalYearRange(referenceDate = new Date()) {
 
 /** @typedef {'current_quarter' | 'current_and_next_quarter' | 'fiscal_year' | 'custom'} CloseDatePreset */
 
-export const DEFAULT_CLOSE_DATE_PRESET = 'current_and_next_quarter';
+export const DEFAULT_CLOSE_DATE_PRESET = 'fiscal_year';
 
 /**
  * Infer the effective close-date preset for a saved (possibly legacy)
