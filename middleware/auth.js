@@ -1,5 +1,5 @@
 import { pool } from '../db/index.js';
-import { checkHasDirectReports } from '../services/sc-lookup.js';
+import { checkHasDirectReports, resolveScUserId } from '../services/sc-lookup.js';
 
 /**
  * Extract user info from Pomerium headers
@@ -36,6 +36,20 @@ async function upsertUser(userInfo) {
 
   const result = await pool.query(query, [email, sub, name]);
   return result.rows[0];
+}
+
+/**
+ * Load an existing user by id (read-only).
+ * Used to reuse the session's already-upserted user on subsequent requests so
+ * we don't re-run upsertUser — which would burn a SERIAL sequence value and
+ * refresh last_login — on every authenticated API call.
+ */
+async function getUserById(id) {
+  const result = await pool.query(
+    'SELECT id, email, sub, name, created_at, last_login, is_manager FROM users WHERE id = $1',
+    [id]
+  );
+  return result.rows[0] || null;
 }
 
 /**
@@ -80,9 +94,43 @@ export async function authenticateWithPomerium(req, res, next) {
       const capturedEmail = req.session?.devEmailOverride || process.env.DEV_USER_EMAIL;
       const devEmail = capturedEmail || 'dev@localhost';
 
-      // Upsert through the real user path so preferences/SC lookups exercise
-      // the same code as a real Pomerium login when switching test emails.
-      const user = await upsertUser({ email: devEmail, sub: `dev-local-${devEmail}`, name: 'Development User' });
+      // Reuse the user already upserted earlier in this session so last_login is
+      // a once-per-session write. This also skips the Snowflake name lookup
+      // below on every request. Re-upsert only for a new session or when the
+      // dev test email changes.
+      let user = null;
+      if (req.session?.userId && req.session.userEmail === devEmail) {
+        user = await getUserById(req.session.userId);
+      }
+
+      if (!user) {
+        // Resolve the real full name from Snowflake so the dev user lines up with
+        // the rest of the app (e.g. "Chad Hines") instead of a placeholder. Only
+        // possible once a real email is captured; failures fall back to the
+        // placeholder and never block login.
+        let devName = 'Development User';
+        if (capturedEmail) {
+          try {
+            const scUser = await resolveScUserId(capturedEmail);
+            if (scUser?.fullName) {
+              devName = scUser.fullName;
+            }
+          } catch (error) {
+            console.error('Failed to resolve dev user name from Snowflake:', error);
+          }
+        }
+
+        // Upsert through the real user path so preferences/SC lookups exercise
+        // the same code as a real Pomerium login when switching test emails.
+        user = await upsertUser({ email: devEmail, sub: `dev-local-${devEmail}`, name: devName });
+
+        // Set session if available
+        if (req.session) {
+          req.session.userId = user.id;
+          req.session.userEmail = user.email;
+        }
+      }
+
       req.user = user;
       // No real email captured yet (session override or DEV_USER_EMAIL) — the
       // frontend uses this to show a first-use email capture dialog instead of
@@ -91,12 +139,6 @@ export async function authenticateWithPomerium(req, res, next) {
 
       if (capturedEmail) {
         await ensureManagerFlag(req.user, capturedEmail);
-      }
-
-      // Set session if available
-      if (req.session) {
-        req.session.userId = req.user.id;
-        req.session.userEmail = req.user.email;
       }
 
       return next();
@@ -112,17 +154,26 @@ export async function authenticateWithPomerium(req, res, next) {
       });
     }
 
-    // Upsert user in database (creates or updates last_login)
-    const user = await upsertUser(pomeriumUser);
+    // Reuse the user already upserted earlier in this session. This keeps
+    // last_login a once-per-session write and avoids burning a SERIAL sequence
+    // value on every authenticated API call. Re-upsert only for a new session
+    // or when the authenticated email changes.
+    let user = null;
+    if (req.session.userId && req.session.userEmail === pomeriumUser.email) {
+      user = await getUserById(req.session.userId);
+    }
+
+    if (!user) {
+      // New session (or changed identity) — upsert refreshes last_login.
+      user = await upsertUser(pomeriumUser);
+      req.session.userId = user.id;
+      req.session.userEmail = user.email;
+    }
 
     // Attach user to request object
     req.user = user;
 
     await ensureManagerFlag(req.user, pomeriumUser.email);
-
-    // Also store in session for persistence
-    req.session.userId = user.id;
-    req.session.userEmail = user.email;
 
     next();
   } catch (error) {

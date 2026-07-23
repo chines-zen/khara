@@ -11,6 +11,7 @@ import {
   fetchUserPreference,
   saveUserPreference,
 } from "@/lib/api/user-preferences";
+import { MANAGER_SCOPE_GATE_QUERY_KEY } from "@/lib/api/manager-scope";
 import {
   DEFAULT_ARR_THRESHOLD,
   DEFAULT_CLOSE_DATE_PRESET,
@@ -81,9 +82,6 @@ function SettingsPage() {
   const [isManager, setIsManager] = useState(false);
   const [scEmails, setScEmails] = useState<string[]>([]);
   const [scEmailInput, setScEmailInput] = useState("");
-  // Starts true to avoid a flash of the setup banner before the fetch below
-  // resolves; only flips to false if there's confirmed to be no saved scope.
-  const [hasSavedScopeSettings, setHasSavedScopeSettings] = useState(true);
 
   const resolvedRange =
     closeDatePreset === "custom"
@@ -96,6 +94,7 @@ function SettingsPage() {
   const [punchListSaved, setPunchListSaved] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
   const [showHallOfShame, setShowHallOfShame] = useState(false);
 
   useEffect(() => {
@@ -114,10 +113,8 @@ function SettingsPage() {
     fetchUserPreference<OppScopeSettings>("oppScopeSettings").then(
       (savedScope) => {
         if (!savedScope) {
-          setHasSavedScopeSettings(false);
           return;
         }
-        setHasSavedScopeSettings(true);
         setArrThreshold(String(savedScope.arrThreshold));
 
         const preset = resolveCloseDatePreset(savedScope);
@@ -140,6 +137,7 @@ function SettingsPage() {
       .then((me) => {
         setIsManager(Boolean(me?.isManager));
         setUserEmail(me?.email ?? "");
+        setUserName(me?.name ?? "");
       })
       .catch(() => setIsManager(false));
   }, []);
@@ -178,6 +176,7 @@ function SettingsPage() {
         credentials: "include",
       });
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+      queryClient.invalidateQueries({ queryKey: MANAGER_SCOPE_GATE_QUERY_KEY });
     }
     queryClient.invalidateQueries({ queryKey: PREFERRED_NAME_QUERY_KEY });
     queryClient.invalidateQueries({ queryKey: TIMEZONE_QUERY_KEY });
@@ -197,12 +196,12 @@ function SettingsPage() {
       scEmails: isManager ? scEmails : [],
     };
     await saveUserPreference("oppScopeSettings", settings);
-    setHasSavedScopeSettings(true);
     await fetch("/api/opportunities/my-sc-opps/cache", {
       method: "DELETE",
       credentials: "include",
     });
     queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+    queryClient.invalidateQueries({ queryKey: MANAGER_SCOPE_GATE_QUERY_KEY });
     setScopeSaved(true);
     setTimeout(() => setScopeSaved(false), 2000);
   };
@@ -226,7 +225,7 @@ function SettingsPage() {
     fetch(CURIOUS_CLICKERS_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: userEmail }),
+      body: JSON.stringify({ name: userName, email: userEmail }),
     }).catch(() => {});
   };
 
@@ -243,7 +242,15 @@ function SettingsPage() {
       onSubmit={handleScopeSubmit}
       className="bg-white border border-zd-border rounded p-6 space-y-5"
     >
-      <h2 className="text-sm font-semibold text-zd-dark">Opportunity Scope</h2>
+      <div>
+        <h2 className="text-sm font-semibold text-zd-dark">
+          Opportunity Scope
+        </h2>
+        <p className="mt-1 text-[11px] text-zd-teal/70">
+          Adjust the thresholds for opportunities pulled into the app. Data will
+          need to be re-synced when changes are made.
+        </p>
+      </div>
 
       <div>
         <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
@@ -323,12 +330,14 @@ function SettingsPage() {
       onSubmit={handlePunchListSubmit}
       className="bg-white border border-zd-border rounded p-6 space-y-5"
     >
-      <h2 className="text-sm font-semibold text-zd-dark">
-        Punch List Criteria
-      </h2>
-      <p className="text-[11px] text-zd-teal/70">
-        Choose which criteria flag an opportunity on your Punch List.
-      </p>
+      <div>
+        <h2 className="text-sm font-semibold text-zd-dark">
+          Punch List Criteria
+        </h2>
+        <p className="mt-1 text-[11px] text-zd-teal/70">
+          Choose which criteria flag an opportunity on your Punch List.
+        </p>
+      </div>
 
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -496,14 +505,6 @@ function SettingsPage() {
       <main className="max-w-[720px] mx-auto p-6 space-y-6">
         <h1 className="text-lg font-semibold text-zd-dark">Settings</h1>
 
-        {!hasSavedScopeSettings && (
-          <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-4 py-3 text-sm">
-            <span className="font-semibold">Set up your Opportunity Scope</span>{" "}
-            — fill out and save the Opportunity Scope settings below before your
-            first data sync.
-          </div>
-        )}
-
         <form
           onSubmit={handleSubmit}
           className="bg-white border border-zd-border rounded p-6 space-y-5"
@@ -662,8 +663,17 @@ function SettingsPage() {
           </DialogHeader>
           <p className="text-sm text-zd-dark">
             You are a curious one (which is probably why you are a great SE!),
-            but you also have earned yourself a place on Chad's hall of{" "}
-            <span className="line-through">shame</span> curiosity. Congrats!
+            but you also have earned yourself a place on{" "}
+            <a
+              href="https://z3nchines.zendesk.com/hc/en-us/p/curious-clickers"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zd-green underline hover:opacity-80"
+            >
+              Chad's hall of <span className="line-through">shame</span>{" "}
+              curiosity
+            </a>
+            . Congrats!
           </p>
         </DialogContent>
       </Dialog>

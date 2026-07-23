@@ -115,6 +115,9 @@ const MONTH_LABEL = (yyyymm: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "2-digit" });
 };
 
+// Format a "YYYYQQ" key (e.g. "2026Q1") as "YYYY QQ" (e.g. "2026 Q1").
+const QUARTER_LABEL = (yyyyq: string) => yyyyq.replace(/(\d{4})(Q\d)/, "$1 $2");
+
 type HoursGroupBy = "month" | "quarter";
 
 function buildHoursChartData(activities: Activity[], groupBy: HoursGroupBy) {
@@ -129,7 +132,7 @@ function buildHoursChartData(activities: Activity[], groupBy: HoursGroupBy) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, hours]) => ({
       key,
-      label: groupBy === "month" ? MONTH_LABEL(key) : key,
+      label: groupBy === "month" ? MONTH_LABEL(key) : QUARTER_LABEL(key),
       hours: Math.round(hours * 10) / 10,
     }));
 }

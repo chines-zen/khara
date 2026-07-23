@@ -242,8 +242,8 @@ function DashboardPage() {
   const isManager = useIsManager();
 
   const groupByOptions: GroupByOption[] = isManager
-    ? ["opp", "owner", "stage", "nameOfSc"]
-    : ["opp", "owner", "stage"];
+    ? ["nameOfSc", "owner", "stage", "opp"]
+    : ["owner", "stage", "opp"];
 
   const filtered = useMemo(
     () => applyFilters(opportunities, filters),

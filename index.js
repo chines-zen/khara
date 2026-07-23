@@ -364,6 +364,17 @@ app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, r
       scope.scEmails = [];
     }
 
+    // Managers rarely own opportunities under their own name, so a sync scoped
+    // to their own SC identity would be empty/meaningless. Require them to
+    // configure the SEs they manage before the first data fetch runs.
+    if (req.user.is_manager && scope.scEmails.length === 0) {
+      return res.status(428).json({
+        error: 'SE emails required',
+        code: 'SE_EMAILS_REQUIRED',
+        details: 'Add the Sales Engineers you manage in Settings before your first data sync.',
+      });
+    }
+
     // Get opportunities (with caching)
     const result = await getScOpportunities(userId, scEmail, scope);
 

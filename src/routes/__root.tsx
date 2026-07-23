@@ -1,15 +1,21 @@
 import "../styles.css";
 
 import { useEffect, useState } from "react";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
 } from "@tanstack/react-router";
 import { EmailCaptureDialog } from "@/components/opportunities/EmailCaptureDialog";
+import { ManagerScopeSetupDialog } from "@/components/opportunities/ManagerScopeSetupDialog";
+import {
+  MANAGER_SCOPE_GATE_QUERY_KEY,
+  fetchManagerNeedsScopeSetup,
+} from "@/lib/api/manager-scope";
 
 function NotFoundComponent() {
   return (
@@ -92,9 +98,28 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <HeadContent />
       <EmailSetupGate />
+      <ManagerScopeGate />
       <Outlet />
     </QueryClientProvider>
   );
+}
+
+// Managers whose account has no SEs configured yet can't run a meaningful first
+// sync (their own name rarely owns opps), so block the app behind a dialog that
+// sends them to Settings. Clears automatically once SE emails are saved.
+function ManagerScopeGate() {
+  const { data: needsSetup } = useQuery({
+    queryKey: MANAGER_SCOPE_GATE_QUERY_KEY,
+    queryFn: fetchManagerNeedsScopeSetup,
+    retry: false,
+  });
+
+  // Don't cover the Settings page — that's where they enter the SE emails.
+  const onSettings = useRouterState({
+    select: (s) => s.location.pathname === "/settings",
+  });
+
+  return <ManagerScopeSetupDialog open={Boolean(needsSetup) && !onSettings} />;
 }
 
 // DEV_MODE only: blocks the app behind a first-use email capture dialog until
