@@ -1,9 +1,37 @@
+import { pool } from '../db/index.js';
 import { getUserPreference } from './preferences.js';
-import { resolveCloseDatePreset, resolveCloseDateRange } from '../fiscal-quarter.js';
+import { DEFAULT_CLOSE_DATE_PRESET, resolveCloseDatePreset, resolveCloseDateRange } from '../fiscal-quarter.js';
 
 export const DEFAULT_ARR_THRESHOLD = 12000;
 
 const PREFERENCE_KEY = 'oppScopeSettings';
+
+/**
+ * Seed a user's default opportunity scope preference (ARR threshold + fiscal-year
+ * close-date preset) when they're first created. Uses ON CONFLICT DO NOTHING so a
+ * user's deliberate changes are never overwritten — this only fills in the default
+ * when no row exists yet. scEmails stays empty: it's manager-only and configured
+ * later in Settings (the manager scope gate still routes managers there).
+ *
+ * Without this row the opportunities page treats a missing preference as
+ * "not set up" and force-navigates the user to Settings.
+ */
+export async function ensureDefaultOppScope(userId) {
+  const defaults = {
+    arrThreshold: DEFAULT_ARR_THRESHOLD,
+    closeDatePreset: DEFAULT_CLOSE_DATE_PRESET,
+    closeDateFrom: null,
+    closeDateTo: null,
+    scEmails: [],
+  };
+
+  await pool.query(
+    `INSERT INTO user_preferences (user_id, preference_key, preference_value, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (user_id, preference_key) DO NOTHING`,
+    [userId, PREFERENCE_KEY, JSON.stringify(defaults)]
+  );
+}
 
 /**
  * Resolve the effective opportunity scope for a user: their saved ARR/close-date

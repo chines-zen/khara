@@ -1,5 +1,6 @@
 import { pool } from '../db/index.js';
 import { checkHasDirectReports, resolveScUserId } from '../services/sc-lookup.js';
+import { ensureDefaultOppScope } from '../services/opp-scope.js';
 
 /**
  * Extract user info from Pomerium headers
@@ -35,7 +36,31 @@ async function upsertUser(userInfo) {
   `;
 
   const result = await pool.query(query, [email, sub, name]);
-  return result.rows[0];
+  const user = result.rows[0];
+
+  // Seed the user's default opp scope (ARR threshold + fiscal-year range) if they
+  // don't have one yet. Without it the opportunities page treats the missing
+  // preference as "not set up" and force-navigates them to Settings. Idempotent
+  // (ON CONFLICT DO NOTHING), so a user's later changes are never overwritten.
+  await ensureDefaultOppScope(user.id);
+
+  return user;
+}
+
+/**
+ * Resolve the SE's real full name via email > userID > name (Snowflake
+ * USER_HISTORY), the same path opportunities use. Falls back to `fallbackName`
+ * when there's no email or the lookup fails/returns nothing — never throws.
+ */
+async function resolveUserName(email, fallbackName) {
+  if (!email) return fallbackName;
+  try {
+    const scUser = await resolveScUserId(email);
+    if (scUser?.fullName) return scUser.fullName;
+  } catch (error) {
+    console.error('Failed to resolve user name from Snowflake:', error);
+  }
+  return fallbackName;
 }
 
 /**
@@ -108,17 +133,7 @@ export async function authenticateWithPomerium(req, res, next) {
         // the rest of the app (e.g. "Chad Hines") instead of a placeholder. Only
         // possible once a real email is captured; failures fall back to the
         // placeholder and never block login.
-        let devName = 'Development User';
-        if (capturedEmail) {
-          try {
-            const scUser = await resolveScUserId(capturedEmail);
-            if (scUser?.fullName) {
-              devName = scUser.fullName;
-            }
-          } catch (error) {
-            console.error('Failed to resolve dev user name from Snowflake:', error);
-          }
-        }
+        const devName = await resolveUserName(capturedEmail, 'Development User');
 
         // Upsert through the real user path so preferences/SC lookups exercise
         // the same code as a real Pomerium login when switching test emails.
@@ -165,7 +180,11 @@ export async function authenticateWithPomerium(req, res, next) {
 
     if (!user) {
       // New session (or changed identity) — upsert refreshes last_login.
-      user = await upsertUser(pomeriumUser);
+      // Resolve the real full name via email > userID > name (Snowflake) so the
+      // stored name matches the rest of the app, falling back to the Pomerium
+      // header name when Snowflake can't resolve the email.
+      const resolvedName = await resolveUserName(pomeriumUser.email, pomeriumUser.name);
+      user = await upsertUser({ ...pomeriumUser, name: resolvedName });
       req.session.userId = user.id;
       req.session.userEmail = user.email;
     }
