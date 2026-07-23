@@ -39,6 +39,31 @@ const MONTH_LABEL = (yyyymm: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "numeric" });
 };
 
+// The Type filter groups every sub-type into exactly one of two buckets:
+// "Meeting" (the fixed list below) and "Other" (everything else). Matching is
+// case/punctuation-insensitive so minor formatting differences in the source
+// data still resolve to the right bucket.
+const MEETING_SUB_TYPES = [
+  "Account check-in",
+  "Business review",
+  "Discovery",
+  "Exec connect",
+  "Innovation day",
+  "Negotiations",
+  "Proposal review",
+  "Rapid business assessment",
+  "Renewal strategy",
+  "Solution demo presentation",
+  "Technical evaluation",
+];
+
+const normalizeSubType = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const MEETING_SUB_TYPE_SET = new Set(MEETING_SUB_TYPES.map(normalizeSubType));
+
+const isMeetingSubType = (subType: string) =>
+  MEETING_SUB_TYPE_SET.has(normalizeSubType(subType));
+
 function useMultiSelect<T extends keyof ActivitiesFilters>(
   filters: ActivitiesFilters,
   onChange: (f: ActivitiesFilters) => void,
@@ -74,20 +99,22 @@ export function ActivitiesFilterBar({
     return Array.from(set).sort();
   }, [activities]);
 
-  // Sub-Types grouped by their parent Type, e.g. "Meeting" -> ["Discovery", "Demo", ...]
+  // Sub-Types bucketed into exactly two groups: "Meeting" (the fixed list) and
+  // "Other" (everything else). Every sub-type present in the data lands in one
+  // and only one group. Groups with no sub-types present are omitted.
   const typeGroups = useMemo(() => {
-    const groups = new Map<string, Set<string>>();
+    const meeting = new Set<string>();
+    const other = new Set<string>();
     activities.forEach((a) => {
-      if (!a.type || !a.subType) return;
-      if (!groups.has(a.type)) groups.set(a.type, new Set());
-      groups.get(a.type)!.add(a.subType);
+      if (!a.subType) return;
+      (isMeetingSubType(a.subType) ? meeting : other).add(a.subType);
     });
-    return Array.from(groups.entries())
-      .map(([type, subTypes]) => ({
-        type,
-        subTypes: Array.from(subTypes).sort(),
-      }))
-      .sort((a, b) => a.type.localeCompare(b.type));
+    const groups: { type: string; subTypes: string[] }[] = [];
+    if (meeting.size)
+      groups.push({ type: "Meeting", subTypes: Array.from(meeting).sort() });
+    if (other.size)
+      groups.push({ type: "Other", subTypes: Array.from(other).sort() });
+    return groups;
   }, [activities]);
 
   const availableAccounts = useMemo(() => {

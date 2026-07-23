@@ -115,16 +115,37 @@ const MONTH_LABEL = (yyyymm: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "2-digit" });
 };
 
-// Format a "YYYYQQ" key (e.g. "2026Q1") as "YYYY QQ" (e.g. "2026 Q1").
-const QUARTER_LABEL = (yyyyq: string) => yyyyq.replace(/(\d{4})(Q\d)/, "$1 $2");
+// Format a "YYYYQQ" fiscal key (e.g. "2026Q2") as "FYYY QQ" (e.g. "FY26 Q2"),
+// where the 4-digit year is the fiscal year's START (Feb) year.
+const QUARTER_LABEL = (yyyyq: string) =>
+  yyyyq.replace(/(\d{2})(\d{2})(Q\d)/, "FY$2 $3");
+
+// Derive the company fiscal quarter from a calendar "YYYYMM" month key.
+// Fiscal year starts in February: Q1 = Feb-Apr, Q2 = May-Jul, Q3 = Aug-Oct,
+// Q4 = Nov-Jan. Jan belongs to the fiscal year that started the prior Feb.
+// Returns a sortable "YYYYQn" key whose year is the fiscal-year START year.
+function fiscalQuarterKey(yyyymm: string): string {
+  const year = Number(yyyymm.slice(0, 4));
+  const month = Number(yyyymm.slice(4, 6)); // 1-indexed, Jan = 1
+  const monthsSinceFyStart = (month - 2 + 12) % 12; // Feb = 0
+  const quarter = Math.floor(monthsSinceFyStart / 3) + 1; // 1-4
+  const fyStartYear = month === 1 ? year - 1 : year; // Jan rolls back a year
+  return `${fyStartYear}Q${quarter}`;
+}
 
 type HoursGroupBy = "month" | "quarter";
 
 function buildHoursChartData(activities: Activity[], groupBy: HoursGroupBy) {
   const totals = new Map<string, number>();
   activities.forEach((a) => {
+    // Always derive the quarter from the calendar month so the grouping
+    // follows the company fiscal calendar, not Snowflake's calendar quarter.
     const key =
-      groupBy === "month" ? a.activityYearMonth : a.activityYearQuarter;
+      groupBy === "month"
+        ? a.activityYearMonth
+        : a.activityYearMonth
+          ? fiscalQuarterKey(a.activityYearMonth)
+          : null;
     if (!key) return;
     totals.set(key, (totals.get(key) ?? 0) + a.durationHours);
   });
