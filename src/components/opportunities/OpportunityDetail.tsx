@@ -7,7 +7,7 @@ import { sfRecordUrl } from "@/lib/sfdc";
 import { DScoreSection, TrendIndicator } from "./DScoreSection";
 import { fetchDispassionateReviews } from "@/lib/api/dispassionate-reviews";
 
-const fmt = (n: number) => `$${n.toLocaleString()}`;
+const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 function NoteBlock({ label, body }: { label: string; body: string }) {
   const [expanded, setExpanded] = useState(false);

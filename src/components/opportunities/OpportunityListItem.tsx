@@ -10,7 +10,7 @@ type Props = {
   isManager?: boolean;
 };
 
-const fmt = (n: number) => `$${n.toLocaleString()}`;
+const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 function daysSince(iso: string): number {
   const then = new Date(iso + "T00:00:00").getTime();
