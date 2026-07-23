@@ -223,6 +223,7 @@ app.get('/api/health', async (req, res) => {
     appUpdatedAt,
     devMode: process.env.DEV_MODE === 'true',
     activitiesEnabled: process.env.ACTIVITIES_ENABLED === 'true',
+    doNotClickActive: process.env.DO_NOT_CLICK_ACTIVE === 'true',
     timestamp: new Date().toISOString(),
   });
 });

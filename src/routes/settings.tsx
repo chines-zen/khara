@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppNav } from "@/components/opportunities/AppNav";
+import { useDoNotClickActive } from "@/hooks/use-do-not-click-active";
 import {
   PREFERRED_NAME_QUERY_KEY,
   TIMEZONE_QUERY_KEY,
@@ -96,6 +97,7 @@ function SettingsPage() {
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [showHallOfShame, setShowHallOfShame] = useState(false);
+  const doNotClickActive = useDoNotClickActive();
 
   useEffect(() => {
     fetchUserPreference<string>("preferredName").then((savedName) => {
@@ -643,15 +645,17 @@ function SettingsPage() {
           </button>
         </div>
 
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={handleCuriousClick}
-            className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded hover:opacity-90 transition-opacity"
-          >
-            Do Not Click
-          </button>
-        </div>
+        {doNotClickActive && (
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={handleCuriousClick}
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded hover:opacity-90 transition-opacity"
+            >
+              Do Not Click
+            </button>
+          </div>
+        )}
 
         {showAdvancedSettings && oppScopeForm}
       </main>

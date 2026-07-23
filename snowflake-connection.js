@@ -17,6 +17,15 @@ function resolveKey(email) {
     return SERVICE_ACCOUNT_KEY;
   }
 
+  // Local testing: when SNOWFLAKE_AUTH_USER is set, every app-user shares one
+  // connection authenticated as that fixed identity, so switching the app-level
+  // SC (DEV_USER_EMAIL / dev session-email) re-scopes the data without popping a
+  // new SSO browser per email. Data scoping still comes from the app-user's email
+  // baked into each query's WHERE clause, not from the connection identity.
+  if (process.env.SNOWFLAKE_AUTH_USER) {
+    return process.env.SNOWFLAKE_AUTH_USER;
+  }
+
   if (!email) {
     throw new Error('Snowflake is configured for EXTERNALBROWSER auth; an email is required to establish a per-user connection');
   }
@@ -66,7 +75,11 @@ function getConfig(email) {
 
   return {
     account,
-    username: email,
+    // SNOWFLAKE_AUTH_USER (if set) is the fixed SSO identity to authenticate as,
+    // decoupled from the app-user's email so a new-SE experience can be tested
+    // without that SE's own Snowflake SSO. Falls back to per-user auth (email) in
+    // production, where each person queries under their own identity/RBAC.
+    username: process.env.SNOWFLAKE_AUTH_USER || email,
     authenticator: 'EXTERNALBROWSER',
     warehouse,
     database,
