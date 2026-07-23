@@ -3,6 +3,8 @@ import { type Opportunity } from "@/lib/opportunities";
 export type PunchListSettings = {
   staleNotesEnabled: boolean;
   staleNotesDays: number;
+  staleDScoreEnabled: boolean;
+  staleDScoreDays: number;
   noScNotesEnabled: boolean;
   noEngagementTypeEnabled: boolean;
   dScoreBelowEnabled: boolean;
@@ -16,6 +18,8 @@ export type PunchListSettings = {
 export const DEFAULT_PUNCH_LIST_SETTINGS: PunchListSettings = {
   staleNotesEnabled: true,
   staleNotesDays: 14,
+  staleDScoreEnabled: true,
+  staleDScoreDays: 14,
   noScNotesEnabled: true,
   noEngagementTypeEnabled: true,
   dScoreBelowEnabled: false,
@@ -56,8 +60,22 @@ export function buildPunchList(
 
       if (settings.staleNotesEnabled) {
         const isStale =
-          !opp.lastUpdateDate || daysSince(opp.lastUpdateDate) >= settings.staleNotesDays;
-        if (isStale) reasons.push(`${settings.staleNotesDays}+ days since Notes Update`);
+          !opp.lastUpdateDate ||
+          daysSince(opp.lastUpdateDate) >= settings.staleNotesDays;
+        if (isStale)
+          reasons.push(`${settings.staleNotesDays}+ days since Notes Update`);
+      }
+
+      if (settings.staleDScoreEnabled) {
+        // Prefer the live latest review date; fall back to mock recentDScoreDate.
+        // Missing entirely (no review on record) counts as stale, per punch-list intent.
+        const reviewDate = opp.latestDScoreReviewDate ?? opp.recentDScoreDate;
+        const isStale =
+          !reviewDate || daysSince(reviewDate) >= settings.staleDScoreDays;
+        if (isStale)
+          reasons.push(
+            `${settings.staleDScoreDays}+ days since D-Score Update`,
+          );
       }
 
       if (settings.noScNotesEnabled && !opp.scNotes?.trim()) {
@@ -68,11 +86,17 @@ export function buildPunchList(
         reasons.push("No SE Engagement Type");
       }
 
-      if (settings.dScoreBelowEnabled && opp.dScore < settings.dScoreBelowThreshold) {
+      if (
+        settings.dScoreBelowEnabled &&
+        opp.dScore < settings.dScoreBelowThreshold
+      ) {
         reasons.push(`D-Score below ${settings.dScoreBelowThreshold}`);
       }
 
-      if (settings.dScoreAboveEnabled && opp.dScore > settings.dScoreAboveThreshold) {
+      if (
+        settings.dScoreAboveEnabled &&
+        opp.dScore > settings.dScoreAboveThreshold
+      ) {
         reasons.push(`D-Score above ${settings.dScoreAboveThreshold}`);
       }
 

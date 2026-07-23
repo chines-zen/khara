@@ -29,6 +29,7 @@ export type Opportunity = {
   dScore: number; // 0-100
   lastUpdateDate: string | null; // Parsed from SC Notes - most recent date mentioned
   recentDScoreDate?: string; // mock-data-only; live opps derive the D-Score history end date from lastUpdateDate/closeDate
+  latestDScoreReviewDate?: string | null; // ISO yyyy-mm-dd; most recent Dispassionate Review date (live opps), null if none
   dScoreDelta: number;
 };
 

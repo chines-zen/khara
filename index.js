@@ -178,6 +178,9 @@ function transformOpportunity(row) {
     scUserId: row.SC_USER_ID,
     dScore: row.D_SCORE || 0,
     lastUpdateDate: parseMostRecentDateFromNotes(row.SC_NOTES), // Parse from SC Notes for "Days Since Update"
+    latestDScoreReviewDate: row.LATEST_DSCORE_REVIEW_DATE
+      ? row.LATEST_DSCORE_REVIEW_DATE.toISOString().split('T')[0]
+      : null,
     dScoreDelta: 0, // TODO: Calculate from historical snapshots
     opportunityNumber: row.OPPORTUNITY_NUMBER,
     snapshotDate: row.SNAPSHOT_DATE ? row.SNAPSHOT_DATE.toISOString().split('T')[0] : null,

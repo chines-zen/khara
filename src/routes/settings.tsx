@@ -403,6 +403,34 @@ function SettingsPage() {
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input
             type="checkbox"
+            checked={punchListSettings.staleDScoreEnabled}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                staleDScoreEnabled: e.target.checked,
+              })
+            }
+            className="w-3.5 h-3.5 cursor-pointer"
+          />
+          <span>D-Score not updated in</span>
+          <input
+            type="number"
+            min={1}
+            value={punchListSettings.staleDScoreDays}
+            onChange={(e) =>
+              setPunchListSettings({
+                ...punchListSettings,
+                staleDScoreDays: Number(e.target.value) || 1,
+              })
+            }
+            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+          />
+          <span>+ days</span>
+        </label>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
             checked={punchListSettings.dScoreBelowEnabled}
             onChange={(e) =>
               setPunchListSettings({

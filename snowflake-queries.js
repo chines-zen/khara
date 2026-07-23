@@ -345,6 +345,10 @@ SELECT
     -- D-Score
     dim.OPPORTUNITY_D_SCORE_LATEST AS d_score,
 
+    -- Most recent Dispassionate Review (D-Score) date, for the "D-Score not
+    -- updated in X days" punch-list criterion. NULL when the opp has no review.
+    dscore_review.latest_review_date AS latest_dscore_review_date,
+
     -- Opportunity number
     stg.OPPORTUNITY_NUMBER_C AS opportunity_number,
 
@@ -428,6 +432,20 @@ LEFT JOIN (
     QUALIFY ROW_NUMBER() OVER (PARTITION BY TERRITORY_ID ORDER BY TERRITORY_ID) = 1
 ) roster
     ON acc.ASSIGNED_TERRITORY_ID_C = roster.TERRITORY_ID
+
+-- Join for most recent Dispassionate Review date per opportunity. Same source
+-- and current-version/not-deleted filters as buildDispassionateReviewsQuery,
+-- collapsed to one row per opp (the max review timestamp).
+LEFT JOIN (
+    SELECT
+        OPPORTUNITY_C AS opportunity_id,
+        MAX(VALID_FROM_TIMESTAMP) AS latest_review_date
+    FROM CLEANSED.SALESFORCE.SALESFORCE_DISPASSIONATE_REVIEW_C_SCD2
+    WHERE VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
+      AND IS_DELETED = FALSE
+    GROUP BY OPPORTUNITY_C
+) dscore_review
+    ON dim.CRM_OPPORTUNITY_ID = dscore_review.opportunity_id
 `;
 
 /**
