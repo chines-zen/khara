@@ -26,6 +26,7 @@ import { getCachedSummary, getSummaryIfCached, cleanupExpiredSummaries } from '.
 import { getHiddenOpportunities, hideOpportunity, unhideOpportunity } from './services/hidden-opportunities.js';
 import { getScOpportunities, invalidateScCache, cleanupExpiredScCache, getLastScCacheSync } from './services/sc-opportunities-cache.js';
 import { getActivities, invalidateActivitiesCache } from './services/activities-cache.js';
+import { getDispassionateReviewsForOpportunity } from './services/dispassionate-reviews-cache.js';
 import { resolveScUserId } from './services/sc-lookup.js';
 import { getEffectiveOppScope } from './services/opp-scope.js';
 
@@ -489,6 +490,29 @@ app.get('/api/opportunities/:id/summary/cached', authenticateWithPomerium, async
   } catch (error) {
     console.error('Error fetching cached summary:', error);
     res.status(500).json({ error: 'Failed to fetch cached summary', details: error.message });
+  }
+});
+
+// GET /api/opportunities/:id/dispassionate-reviews - D-Score review history for
+// one opp, syncing from Snowflake on a cache miss (24h per-opp TTL).
+app.get('/api/opportunities/:id/dispassionate-reviews', authenticateWithPomerium, async (req, res) => {
+  try {
+    if (!databaseConnected) {
+      return res.status(503).json({ error: 'Database connection not established' });
+    }
+
+    const result = await getDispassionateReviewsForOpportunity(req.params.id, req.user.email);
+    res.json({
+      reviews: result.reviews,
+      metadata: {
+        cached: result.cached,
+        cachedAt: result.cachedAt,
+        count: result.reviews.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching dispassionate reviews:', error);
+    res.status(500).json({ error: 'Failed to fetch dispassionate reviews', details: error.message });
   }
 });
 

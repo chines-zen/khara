@@ -1,31 +1,13 @@
 import { useRef, useState, useLayoutEffect, useEffect } from "react";
 import { AlertCircle } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Opportunity } from "@/lib/opportunities";
 import { formatDisplayDate } from "@/lib/utils";
 import { sfRecordUrl } from "@/lib/sfdc";
+import { DScoreSection, TrendIndicator } from "./DScoreSection";
+import { fetchDispassionateReviews } from "@/lib/api/dispassionate-reviews";
 
 const fmt = (n: number) => `$${n.toLocaleString()}`;
-
-function buildDScoreHistory(opp: Opportunity) {
-  // Synthesize 5 mock entries ending at the current score.
-  // recentDScoreDate only exists on mock data; live Snowflake opps fall
-  // back to lastUpdateDate/closeDate, then today, to avoid an invalid Date.
-  const rawEndDate = opp.recentDScoreDate || opp.lastUpdateDate || opp.closeDate;
-  const parsedEnd = rawEndDate ? new Date(rawEndDate) : new Date();
-  const end = Number.isNaN(parsedEnd.getTime()) ? new Date() : parsedEnd;
-  const entries: { date: string; score: number }[] = [];
-  let score = opp.dScore;
-  for (let i = 0; i < 5; i++) {
-    const d = new Date(end);
-    d.setDate(end.getDate() - i * 14);
-    entries.push({ date: d.toISOString().slice(0, 10), score: Math.max(0, Math.min(100, score)) });
-    // walk backwards using delta-like steps
-    const step = ((opp.dScoreDelta || 3) + (i % 2 === 0 ? 4 : -2));
-    score = score - step;
-  }
-  return entries.reverse();
-}
 
 function NoteBlock({ label, body }: { label: string; body: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -78,6 +60,13 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showDateHelp, setShowDateHelp] = useState(false);
   const [isHidden, setIsHidden] = useState(initialIsHidden);
+  const dScoreSectionRef = useRef<HTMLDivElement>(null);
+
+  const scrollToDScore = () =>
+    dScoreSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
 
   // Update local state when prop changes
   useEffect(() => {
@@ -107,9 +96,19 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
     };
   }, [opp.id]);
 
-  const history = buildDScoreHistory(opp);
-  const maxScore = Math.max(...history.map((h) => h.score), 100);
-  const latest = history[history.length - 1];
+  // D-Score review history (shared cache with the DScoreSection below, so this
+  // reuses the same request). Reviews are newest-first, so [0] is the latest
+  // and [1] is the prior one used for the up/down movement indicator.
+  const { data: reviewsData } = useQuery({
+    queryKey: ["dispassionateReviews", opp.id],
+    queryFn: () => fetchDispassionateReviews(opp.id),
+    retry: false,
+  });
+  const latestReview = reviewsData?.reviews?.[0] ?? null;
+  const previousReview = reviewsData?.reviews?.[1] ?? null;
+  const latestReviewDate = latestReview?.validFromTimestamp
+    ? formatDisplayDate(latestReview.validFromTimestamp.slice(0, 10))
+    : null;
 
   // Check if there's a parsing error (notes exist but no date found)
   const hasParsingError = !opp.lastUpdateDate && opp.scNotes && opp.scNotes.trim() !== '';
@@ -264,20 +263,37 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
             </dd>
           </div>
 
-          {/* D-Score Tile - spans both rows */}
+          {/* D-Score Tile - spans both rows. Click scrolls to the D-Score section. */}
           <div className="row-span-2 flex items-center justify-center">
-            <div className="border border-zd-border rounded-lg p-4 flex flex-col items-center justify-center w-full">
-              <h4 className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-widest mb-2">
+            <button
+              type="button"
+              onClick={scrollToDScore}
+              title="View D-Score history"
+              className="border border-zd-border rounded-lg p-4 flex flex-col items-center justify-center w-full cursor-pointer hover:border-zd-teal/50 hover:bg-zd-bg/40 transition-colors"
+            >
+              <h4 className="text-[14px] font-bold text-zd-teal/60 uppercase tracking-widest mb-2">
                 D-Score
               </h4>
-              <span className={`text-5xl font-bold font-mono ${
-                opp.dScore >= 31 ? 'text-green-600' :
-                opp.dScore >= 21 ? 'text-yellow-600' :
-                'text-red-600'
-              }`}>
-                {opp.dScore}
-              </span>
-            </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-5xl font-bold font-mono ${
+                  opp.dScore >= 31 ? 'text-green-600' :
+                  opp.dScore >= 21 ? 'text-yellow-600' :
+                  'text-red-600'
+                }`}>
+                  {opp.dScore}
+                </span>
+                <TrendIndicator
+                  current={latestReview?.summedDScore ?? null}
+                  previous={previousReview?.summedDScore ?? null}
+                  className="size-6"
+                />
+              </div>
+              {latestReviewDate && (
+                <span className="text-[11px] text-zd-teal/60 mt-2 font-medium">
+                  {latestReviewDate}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Row 2 */}
@@ -392,32 +408,9 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
           </div>
         </div>
 
-        {/* Keep any remaining content below */}
-        <div className="hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-zd-bg text-[10px] uppercase tracking-widest text-zd-teal/60">
-                <th className="text-left px-4 py-2 font-bold">Date</th>
-                <th className="text-left px-4 py-2 font-bold">Score</th>
-                <th className="text-left px-4 py-2 font-bold">Δ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((h, i) => {
-                const prev = i > 0 ? history[i - 1].score : h.score;
-                const delta = h.score - prev;
-                return (
-                  <tr key={h.date} className="border-t border-zd-border/60">
-                    <td className="px-4 py-2 font-mono text-zd-dark/80">{h.date}</td>
-                    <td className="px-4 py-2 font-mono text-zd-dark">{h.score}</td>
-                    <td className={`px-4 py-2 font-mono ${delta > 0 ? "text-zd-green" : delta < 0 ? "text-red-500" : "text-zd-teal/40"}`}>
-                      {delta > 0 ? "+" : ""}{delta}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        {/* D-Score history: summed score over time + expandable review table */}
+        <div ref={dScoreSectionRef} className="scroll-mt-4">
+          <DScoreSection oppId={opp.id} />
         </div>
       </div>
     </div>
