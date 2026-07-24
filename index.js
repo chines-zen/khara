@@ -29,6 +29,8 @@ import { getActivities, invalidateActivitiesCache } from './services/activities-
 import { getDispassionateReviewsForOpportunity } from './services/dispassionate-reviews-cache.js';
 import { resolveScUserId } from './services/sc-lookup.js';
 import { getEffectiveOppScope } from './services/opp-scope.js';
+import { setEnvVar } from './services/env-writer.js';
+import { validateBedrockToken } from './src/lib/claude-ai.server.js';
 
 // Routes
 import preferencesRouter from './routes/preferences.js';
@@ -227,6 +229,7 @@ app.get('/api/health', async (req, res) => {
     devMode: process.env.DEV_MODE === 'true',
     activitiesEnabled: process.env.ACTIVITIES_ENABLED === 'true',
     doNotClickActive: process.env.DO_NOT_CLICK_ACTIVE === 'true',
+    claudeTokenConfigured: Boolean(process.env.AWS_BEARER_TOKEN_BEDROCK),
     timestamp: new Date().toISOString(),
   });
 });
@@ -481,6 +484,45 @@ app.delete('/api/activities/cache', authenticateWithPomerium, async (req, res) =
   } catch (error) {
     console.error('Error clearing activities cache:', error);
     res.status(500).json({ error: 'Failed to clear cache', details: error.message });
+  }
+});
+
+// POST /api/config/claude-token - Validate a Claude/Bedrock bearer token against
+// the AI gateway, then save it to the local .env file so AI summaries can be
+// generated. The token is only persisted if the gateway accepts it. A rejected
+// token (bad/expired credential) is cleared from .env so the user can retry with
+// a fresh one; a gateway/server-side error leaves any existing token untouched
+// and tells the user to try again later. Local-dev convenience only; in a real
+// deployment the token comes from the environment (no writable .env).
+app.post('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      return res.status(400).json({ error: 'Missing "token" in request body' });
+    }
+
+    const trimmed = token.trim();
+    const result = await validateBedrockToken(trimmed);
+
+    if (result.ok) {
+      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', trimmed);
+      return res.json({ success: true });
+    }
+
+    // The token was rejected — clear any stored token so the UI reverts to the
+    // prompt and the user can enter a different one.
+    if (result.reason === 'auth') {
+      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
+      return res.status(400).json({ error: result.message, reason: result.reason });
+    }
+
+    // Gateway/network/rate-limit/config problem: don't persist, but this isn't
+    // necessarily the token's fault, so leave any existing token in place.
+    return res.status(502).json({ error: result.message, reason: result.reason });
+  } catch (error) {
+    console.error('Error saving Claude token:', error);
+    res.status(500).json({ error: 'Failed to save token', details: error.message });
   }
 });
 
