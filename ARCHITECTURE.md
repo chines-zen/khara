@@ -58,7 +58,7 @@ There is **one server**: `index.js` (Express). It serves the built React UI as s
 - **`npm start`** (`node index.js`) — the real server. Serves the pre-built `dist/` bundle and every `/api/*` route, backed by live Snowflake + Postgres. This is what runs in production.
 - **`npm run dev`** (`vite --config vite.config.spa.ts`) — a Vite dev server for the UI only, with hot module reload. It has no backend of its own; `server.proxy` in `vite.config.spa.ts` forwards every `/api/*` request to `npm start` on port 8080. Run both at once: `npm start` in one terminal, `npm run dev` in another.
 
-There is no SSR server function layer — that was an earlier iteration of this app (TanStack Start `createServerFn`s) that was converted away from; see `CONVERSION_SUMMARY.md`. All backend logic lives in `index.js` and its `routes/`, `services/`, `middleware/`, `db/` modules.
+There is no SSR server function layer — that was an earlier iteration of this app (TanStack Start `createServerFn`s) that was converted away from. All backend logic lives in `index.js` and its `routes/`, `services/`, `middleware/`, `db/` modules.
 
 ## Data flow: fetching "my opportunities"
 

@@ -147,7 +147,7 @@ Created automatically on server startup by `db/index.js` (users, sessions, user_
 ## 📚 Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture, data flow, and local dev flags
-- **[SNOWFLAKE_SETUP.md](SNOWFLAKE_SETUP.md)** - Snowflake integration guide
+- **[SNOWFLAKE_DATA_MODEL.md](SNOWFLAKE_DATA_MODEL.md)** - The Snowflake tables/fields this app reads, and patterns for building your own Snowflake-backed app
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment guide
 
 ## 🛠️ Development
