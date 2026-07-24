@@ -152,7 +152,7 @@ ${opp.scManagerNotes}
 Product Specialist Notes:
 ${opp.productSpecialistNotes}
 
-Provide only the summary text, no preamble.`;
+Provide only the summary text, no preamble. Write plain prose. You may use **bold** to emphasize key terms, but do not use any other markdown formatting (no headings, italics, bullet lists, tables, or links).`;
 
   const response = await fetch(`${endpoint}/model/${MODEL_ID}/invoke`, {
     method: 'POST',

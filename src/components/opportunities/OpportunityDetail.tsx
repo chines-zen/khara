@@ -13,6 +13,21 @@ import {
 
 const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
+// Renders **bold** markers as actual bold. Everything else passes through as
+// text, so whitespace-pre-line on the parent still preserves newlines. This is
+// the only markdown we support — other markers are left as-is.
+function renderWithBold(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <strong key={i} className="font-semibold">
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      part
+    ),
+  );
+}
+
 function NoteBlock({ label, body }: { label: string; body: string }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -447,7 +462,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
                 ) : summary === null ? (
                   <span className="text-zd-teal/50">No summary generated yet.</span>
                 ) : (
-                  summary
+                  renderWithBold(summary)
                 )}
               </p>
               <div className="mt-3 flex items-center justify-between">
