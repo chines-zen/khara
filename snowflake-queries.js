@@ -1,5 +1,3 @@
-import { TEST_OPP_IDS, isTestOppsEnabled } from './services/test-opps.js';
-
 /**
  * Build SQL query for fetching opportunities with all required fields
  */
@@ -306,8 +304,7 @@ WHERE dim.RUN_DATE = (SELECT MAX(RUN_DATE) FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OP
 `;
 }
 
-// Shared SELECT/JOIN block for SC-specific opportunity queries (used by both the
-// normal scoped query and the local-dev TEST_OPP_IDS override below)
+// Shared SELECT/JOIN block for SC-specific opportunity queries
 const SC_OPPORTUNITIES_SELECT = `
 SELECT
     -- Core fields from DIM
@@ -455,22 +452,6 @@ LEFT JOIN (
  * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
  */
 export function buildScOpportunitiesQuery(snowflakeUserIds, scope = {}) {
-  // Local dev override: ignore SC identity, stage, and ARR/close-date scoping
-  // and pull only the fixed TEST_OPP_IDS set (see services/test-opps.js)
-  if (isTestOppsEnabled()) {
-    const idList = TEST_OPP_IDS.map(id => `'${id}'`).join(', ');
-    return `
-${SC_OPPORTUNITIES_SELECT}
-WHERE dim.RUN_DATE = (
-    SELECT MAX(RUN_DATE)
-    FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
-)
-  AND dim.CRM_OPPORTUNITY_ID IN (${idList})
-
-ORDER BY stg.NAME
-`;
-  }
-
   const userIds = Array.isArray(snowflakeUserIds) ? snowflakeUserIds : [snowflakeUserIds];
   const userIdList = userIds.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
   const { arrThreshold, closeDateFrom, closeDateTo } = scope;

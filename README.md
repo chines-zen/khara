@@ -29,7 +29,7 @@ npm run dev
 ```
 
 ### Local dev flags
-The server always queries Snowflake — there is no offline data mode. For local dev you can set `DEV_MODE=true` to bypass Pomerium auth, and `USE_TEST_OPPS=true` to bypass SC scoping and pull the fixed opportunity set in `services/test-opps.js`. See [ARCHITECTURE.md](ARCHITECTURE.md#local-dev-flags-env) for all local dev flags.
+The server always queries Snowflake — there is no offline data mode. For local dev you can set `DEV_MODE=true` to bypass Pomerium auth. See [ARCHITECTURE.md](ARCHITECTURE.md#local-dev-flags-env) for all local dev flags.
 
 ## 📁 Project Structure
 
@@ -166,7 +166,7 @@ npm run format
 - Parameterized queries prevent SQL injection
 - `.gitignore` prevents credential commits
 - No sensitive data sent to client
-- `DEV_MODE` and `USE_TEST_OPPS` are local-dev-only escape hatches — must be `false`/unset in production
+- `DEV_MODE` is a local-dev-only escape hatch — must be `false`/unset in production
 
 ## 🚀 Deployment
 

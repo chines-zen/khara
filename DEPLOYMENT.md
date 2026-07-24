@@ -36,7 +36,7 @@ the README for the full list), and make sure a Postgres instance is reachable.
 
 ## Production checklist
 
-- `DEV_MODE=false` (or unset) and `USE_TEST_OPPS=false`
+- `DEV_MODE=false` (or unset)
 - `SNOWFLAKE_AUTH_USER` unset, so each user authenticates under their own RBAC
 - a strong, unique `SESSION_SECRET`
 - Snowflake and Postgres credentials provided as platform env vars

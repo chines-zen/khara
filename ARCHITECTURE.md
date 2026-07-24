@@ -73,7 +73,6 @@ Related endpoints follow the same shape: hide/unhide (`services/hidden-opportuni
 
 ## Local dev flags (`.env`)
 
-- `USE_TEST_OPPS=true` — bypass SC identity/stage/ARR/close-date scoping, return a fixed opportunity ID list (`services/test-opps.js`). Set `false` to exercise real scoping against Settings values.
 - `DEV_MODE=true` — bypass Pomerium auth using `DEV_USER_EMAIL`, with a `/api/dev/session-email` endpoint (surfaced in Settings) to switch identity without real SSO.
 
 ## File organization
@@ -109,4 +108,4 @@ src/
 - Credentials only ever read from environment variables, never sent to the client.
 - Parameterized/escaped SQL in both `snowflake-queries.js` and Postgres queries (`pg` uses `$1`/`$2` placeholders).
 - Session cookie (`se.opp.sid`) backed by Postgres via `connect-pg-simple`.
-- `DEV_MODE` and `USE_TEST_OPPS` are local-dev-only escape hatches — must be `false`/unset in production.
+- `DEV_MODE` is a local-dev-only escape hatch — must be `false`/unset in production.
