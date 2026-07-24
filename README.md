@@ -6,6 +6,9 @@ Built with React, Vite, and Tailwind CSS on the frontend, and a single Express s
 
 ## 🚀 Quick Start
 
+> **First time on a fresh clone?** Do [Local Setup](#️-local-setup) first
+> (`.env` + `createdb`) — the commands below assume both are already in place.
+
 ### Run the app
 ```bash
 # Install dependencies
@@ -43,8 +46,6 @@ se-opp-rigor/
 │   │   └── admin.tsx            # System health & stats dashboard
 │   ├── lib/api/              # Client-side fetch() wrappers calling index.js's /api/* routes
 │   └── components/opportunities/  # Opportunity list/detail/nav UI components
-├── snowflake-schema.sql     # Database schema
-├── migrate-mock-data.sql    # Sample data
 └── .env.example             # Configuration template
 ```
 
@@ -68,7 +69,7 @@ se-opp-rigor/
 | `id` | string | Unique identifier (e.g., OPP-94821) |
 | `name` | string | Opportunity name |
 | `account` | string | Customer account name |
-| `stage` | enum | Sales stage (6 stages) |
+| `stage` | string | Sales stage (values come from the data) |
 | `amount` | number | Deal value in USD |
 | `closeDate` | string | Expected close date (ISO) |
 | `owner` | string | Sales rep owner |
@@ -80,75 +81,50 @@ se-opp-rigor/
 | `lastUpdateDate` | string \| null | Most recent date mentioned in SC Notes |
 | `dScoreDelta` | number | Score change |
 
-### Sales Stages
-1. Prospecting
-2. Qualification
-3. Proposal
-4. Negotiation
-5. Won
-6. Lost
 
-## 🔧 Configuration
+## 🗄️ Local Setup
 
-### Environment Variables
+A fresh clone (no `.env`, no database) needs these steps in order. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for the same steps with more detail.
 
-Create a `.env` file (copy from `.env.example`):
-
-```env
-# Snowflake credentials
-SNOWFLAKE_ACCOUNT=your_account.region
-SNOWFLAKE_USERNAME=your_username
-SNOWFLAKE_PASSWORD=your_password
-SNOWFLAKE_WAREHOUSE=COMPUTE_WH
-SNOWFLAKE_DATABASE=SE_OPP_RIGOR
-SNOWFLAKE_SCHEMA=PUBLIC
-SNOWFLAKE_ROLE=SYSADMIN
-
-# Postgres (sessions, preferences, caching)
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=se_opp_rigor
-DB_USER=postgres
-DB_PASSWORD=
-
-# Local dev flags — see ARCHITECTURE.md for details
-USE_TEST_OPPS=false
-DEV_MODE=true
-DEV_USER_EMAIL=your_email@zendesk.com
+### 1. Configure environment
+```bash
+cp .env.example .env
+# then edit .env — fill in DEV_USER_EMAIL 
 ```
-
-See `.env.example` for the full list, including the AI gateway (`AWS_ENDPOINT_URL_BEDROCK_RUNTIME` / `AWS_BEARER_TOKEN_BEDROCK`) and session (`SESSION_SECRET`) settings.
 
 **Important:** Never commit `.env` to version control!
 
-## 🗄️ Database Setup
-
-### 1. Create Snowflake Tables
-```sql
--- Run snowflake-schema.sql in your Snowflake account
--- Creates: opportunities table + indexes + view
-```
-
-### 2. Load Sample Data (Optional)
-```sql
--- Run migrate-mock-data.sql
--- Loads sample opportunities
-```
-
-### 3. Postgres Tables
-Created automatically on server startup by `db/index.js` (users, sessions, user_preferences, hidden_opportunities, sc_opportunities_cache, opportunity_summaries).
-
-### 4. Verify Setup
+### 2. Create the Postgres database
 ```bash
-# Visit http://localhost:8080/admin (or :3000 under npm run dev)
-# Check connection status and statistics
+createdb se_opp_rigor   # must match DB_NAME in .env
 ```
+`pg` connects to an existing database — it won't create one. If it's missing,
+startup fails with a connection error. The **tables** inside it are created
+automatically on first server startup by `db/index.js` (users, sessions,
+user_preferences, hidden_opportunities, sc_opportunities_cache,
+opportunity_summaries, activities, dispassionate_reviews) — no manual SQL or
+migrations needed.
+
+### 3. Install, build, and start
+```bash
+npm install
+npm run build
+npm start        # http://localhost:8080
+```
+
+### 4. Verify
+Visit `http://localhost:8080/admin` to check
+Snowflake/Postgres connection status and statistics.
+
+> **Snowflake tables:** this app *reads* existing Zendesk Snowflake data — you do
+> not create any Snowflake tables for local dev.
 
 ## 📚 Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture, data flow, and local dev flags
 - **[SNOWFLAKE_DATA_MODEL.md](SNOWFLAKE_DATA_MODEL.md)** - The Snowflake tables/fields this app reads, and patterns for building your own Snowflake-backed app
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deploying to a hosted platform (local setup lives in this README)
 
 ## 🛠️ Development
 
@@ -207,14 +183,8 @@ Visit `/admin` to monitor:
 
 ## 🆘 Troubleshooting
 
-### "Cannot find module 'snowflake-sdk'"
-```bash
-npm install snowflake-sdk
-```
-
-### "Invalid Snowflake account"
-Check that your account format is: `account_id.region`
-Example: `xy12345.us-east-1`
+### "Cannot find module ..."
+Run `npm install` — all dependencies (including `snowflake-sdk` and `pg`) are in `package.json`.
 
 ### "Connection failed"
 1. Verify credentials in `.env`
@@ -222,8 +192,8 @@ Example: `xy12345.us-east-1`
 3. Ensure Snowflake account is accessible
 4. Check network policies/IP allowlists
 
-### "Table does not exist"
-Run `snowflake-schema.sql` in Snowflake to create tables
+### "relation does not exist" (Postgres)
+App tables are created automatically on startup by `db/index.js`. This usually means the database itself is missing — run `createdb se_opp_rigor` (matching `DB_NAME`), then restart. The app never creates Snowflake tables; it reads existing Zendesk Snowflake data.
 
 ## 📝 License
 
