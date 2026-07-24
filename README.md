@@ -97,7 +97,7 @@ cp .env.example .env
 
 ### 2. Create the Postgres database
 ```bash
-createdb se_opp_rigor   # must match DB_NAME in .env
+createdb khara   # must match DB_NAME in .env
 ```
 `pg` connects to an existing database — it won't create one. If it's missing,
 startup fails with a connection error. The **tables** inside it are created
@@ -193,7 +193,7 @@ Run `npm install` — all dependencies (including `snowflake-sdk` and `pg`) are 
 4. Check network policies/IP allowlists
 
 ### "relation does not exist" (Postgres)
-App tables are created automatically on startup by `db/index.js`. This usually means the database itself is missing — run `createdb se_opp_rigor` (matching `DB_NAME`), then restart. The app never creates Snowflake tables; it reads existing Zendesk Snowflake data.
+App tables are created automatically on startup by `db/index.js`. This usually means the database itself is missing — run `createdb khara` (matching `DB_NAME`), then restart. The app never creates Snowflake tables; it reads existing Zendesk Snowflake data.
 
 ### "EADDRINUSE" / port 8080 already in use
 Something else is already running on the default port. Set `PORT` in `.env` to a free port (e.g. `PORT=8081`) and restart, or run a one-off with `PORT=8081 npm start`. If you're also using `npm run dev` (Vite on :3000), update the proxy target in `vite.config.spa.ts` to match the new port.
