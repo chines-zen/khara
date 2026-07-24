@@ -701,7 +701,18 @@ function SettingsPage() {
 
         {punchListForm}
 
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between">
+          {doNotClickActive ? (
+            <button
+              type="button"
+              onClick={handleCuriousClick}
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded hover:opacity-90 transition-opacity"
+            >
+              Do Not Click
+            </button>
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
@@ -710,18 +721,6 @@ function SettingsPage() {
             Advanced Settings
           </button>
         </div>
-
-        {doNotClickActive && (
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={handleCuriousClick}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded hover:opacity-90 transition-opacity"
-            >
-              Do Not Click
-            </button>
-          </div>
-        )}
 
         {showAdvancedSettings && oppScopeForm}
       </main>
