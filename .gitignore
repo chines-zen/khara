@@ -54,3 +54,7 @@ TODO.md
 
 # Snowflake credentials (extra safety)
 snowflake-credentials.*
+
+# Chrome extension build artifacts / signing key
+extension.pem
+extension.crx

@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Punch List in SFDC",
+  "version": "1.0.0",
+  "description": "Shows which Punch List criteria an opportunity met, on its Salesforce record page.",
+  "background": {
+    "service_worker": "src/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://zendesk.lightning.force.com/lightning/*"],
+      "js": ["src/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": ["https://zendesk.lightning.force.com/*"],
+  "permissions": ["storage"],
+  "externally_connectable": {
+    "matches": ["http://localhost:3000/*", "http://localhost:8080/*"]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -713,13 +713,22 @@ function SettingsPage() {
           ) : (
             <span />
           )}
-          <button
-            type="button"
-            onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-            className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
-          >
-            Advanced Settings
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.navigate({ to: "/admin" })}
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity"
+            >
+              Diagnostics
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+            >
+              Advanced Settings
+            </button>
+          </div>
         </div>
 
         {showAdvancedSettings && oppScopeForm}

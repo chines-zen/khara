@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Settings, RefreshCw, AlertTriangle } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  useMutation,
+  useIsMutating,
+} from "@tanstack/react-query";
 import { usePreferredName, useTimezone } from "@/lib/preferences";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { fetchActivities } from "@/lib/api/activities";
@@ -25,6 +30,11 @@ import {
   type PunchListSettings,
 } from "@/lib/punch-list";
 
+// Keyed on the QueryClient (which lives in __root and outlives AppNav), so the
+// in-flight state survives AppNav unmounting/remounting when the user navigates
+// between tabs mid-sync. A component-local useState would reset on remount.
+const REFRESH_MUTATION_KEY = ["appNavRefresh"];
+
 function formatLastRefreshed(iso: string | undefined, timezone: string) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -47,7 +57,6 @@ export function AppNav() {
   const timezone = useTimezone();
   const activitiesEnabled = useActivitiesEnabled();
   const queryClient = useQueryClient();
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
     DEFAULT_PUNCH_LIST_SETTINGS,
   );
@@ -102,9 +111,13 @@ export function AppNav() {
     [data?.opportunities, hiddenIds, punchListSettings],
   );
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
+  // The mutation state lives on the QueryClient, so isRefreshing reflects any
+  // in-flight sync even after this AppNav instance remounts on tab navigation.
+  const isRefreshing = useIsMutating({ mutationKey: REFRESH_MUTATION_KEY }) > 0;
+
+  const { mutate: handleRefresh } = useMutation({
+    mutationKey: REFRESH_MUTATION_KEY,
+    mutationFn: async () => {
       // Opps: drop the cache blob so it's fully re-pulled (they change daily).
       // Activities: force a resync now (incremental for known SEs, full backfill
       // for any newly-scoped ones) - keeps watermarks, unlike DELETE .../cache.
@@ -129,10 +142,8 @@ export function AppNav() {
           queryKey: DATA_SYNC_PENDING_QUERY_KEY,
         }),
       ]);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+    },
+  });
 
   return (
     <nav className="h-[60px] bg-zd-dark flex items-center px-5 justify-between sticky top-0 z-50">
@@ -211,7 +222,7 @@ export function AppNav() {
         </div>
         <button
           type="button"
-          onClick={handleRefresh}
+          onClick={() => handleRefresh()}
           disabled={isRefreshing}
           aria-label="Refresh Data"
           title="Refresh Data"
