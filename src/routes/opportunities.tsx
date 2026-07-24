@@ -3,7 +3,7 @@ import { useMemo, useState, useEffect } from "react";
 import { X, ChevronDown, Check } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-import { OPPORTUNITIES } from "@/lib/opportunities";
+import { type Opportunity } from "@/lib/opportunities";
 import { OpportunityListItem } from "@/components/opportunities/OpportunityListItem";
 import { OpportunityDetail } from "@/components/opportunities/OpportunityDetail";
 import { AppNav } from "@/components/opportunities/AppNav";
@@ -75,7 +75,7 @@ async function fetchHiddenOpportunities() {
 }
 
 // Client-side filtering
-function applyFilters(opportunities: typeof OPPORTUNITIES, filters: Filters) {
+function applyFilters(opportunities: Opportunity[], filters: Filters) {
   return opportunities.filter((opp) => {
     // Search filter
     if (filters.search) {

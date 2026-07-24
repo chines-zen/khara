@@ -73,7 +73,6 @@ Related endpoints follow the same shape: hide/unhide (`services/hidden-opportuni
 
 ## Local dev flags (`.env`)
 
-- `USE_MOCK_DATA=true` — bypass Snowflake, return static mock data.
 - `USE_TEST_OPPS=true` — bypass SC identity/stage/ARR/close-date scoping, return a fixed opportunity ID list (`services/test-opps.js`). Set `false` to exercise real scoping against Settings values.
 - `DEV_MODE=true` — bypass Pomerium auth using `DEV_USER_EMAIL`, with a `/api/dev/session-email` endpoint (surfaced in Settings) to switch identity without real SSO.
 
@@ -99,7 +98,7 @@ src/
 │   ├── admin.tsx               # Health monitoring dashboard
 │   └── index.tsx                # Pipeline dashboard
 ├── lib/
-│   ├── opportunities.ts       # Shared types + mock data
+│   ├── opportunities.ts       # Shared opportunity types + stage constants
 │   ├── api/                    # fetch() wrappers calling index.js's /api/* routes
 │   └── vertex-ai.server.js    # Imported by services/summary-cache.js (Express-only)
 └── components/                # UI components

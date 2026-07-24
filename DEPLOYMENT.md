@@ -1,274 +1,120 @@
-# Deployment Guide - Single File Express Server
+# Deployment & Local Setup
 
-This guide explains how to deploy the SE Opp Rigor application as a single-file Express server for internal platforms.
+The app is a single Express server (`index.js`) that serves a pre-built React
+bundle from `dist/` and handles Snowflake queries, Postgres-backed
+caching/preferences/sessions, and auth. See [ARCHITECTURE.md](ARCHITECTURE.md)
+for the full design.
 
-## Overview
+## Prerequisites
 
-The application has been converted from a TanStack Start SSR app to a hybrid architecture:
-- **Single `index.js`** - Express server with REST API endpoints
-- **Static React app** - Pre-built client bundle served from `/dist`
-- **Mock data by default** - No external dependencies required
-- **Optional Snowflake** - Can be enabled with environment variables
+- **Node.js** 20+ and **npm**
+- **PostgreSQL** 14+ running and reachable (stores sessions, preferences, and
+  the cached Snowflake data). Tables are created automatically on first server
+  startup by `db/index.js`.
+- **Snowflake access** — the app queries Snowflake under each user's identity
+  via `EXTERNALBROWSER` SSO (a browser window opens on first query). There is no
+  offline data mode; the server always queries Snowflake.
 
-## Quick Start
+## Setup
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Build the React Frontend
+This installs everything, including `snowflake-sdk` and `pg`.
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`. Key settings (see `.env.example` for the annotated full list):
+
+```bash
+# Snowflake (leave USERNAME/PASSWORD unset to use EXTERNALBROWSER SSO)
+SNOWFLAKE_ACCOUNT=your_account.region
+SNOWFLAKE_WAREHOUSE=COMPUTE_WH
+SNOWFLAKE_DATABASE=...
+SNOWFLAKE_SCHEMA=...
+SNOWFLAKE_ROLE=...
+
+# Postgres
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=se_opp_rigor
+DB_USER=postgres
+DB_PASSWORD=
+
+# Session
+SESSION_SECRET=change-this-to-a-long-random-string
+
+# Local dev flags — set all to false/unset in production
+DEV_MODE=true              # bypass auth for local testing
+ACTIVITIES_ENABLED=false   # requires SA_ACTIVITY_DAILY_SNAPSHOT access
+```
+
+Create the Postgres database first if it doesn't exist:
+
+```bash
+createdb se_opp_rigor
+```
+
+### 3. Build the frontend
 
 ```bash
 npm run build
 ```
 
-This creates a `/dist` folder with the compiled React app.
+Outputs the client bundle to `dist/`.
 
-### 3. Start the Server
-
-```bash
-npm start
-```
-
-Or with custom port:
+### 4. Start the server
 
 ```bash
-PORT=8080 npm start
+npm start            # serves dist/ + /api on PORT (default 8080)
 ```
 
-The server will start on `process.env.PORT` or default to 8080.
+Open http://localhost:8080. The admin dashboard at `/admin` shows Snowflake and
+Postgres connection health.
 
-### 4. Access the Application
+## Local UI development
 
-Open your browser to:
-- **Main app**: http://localhost:8080
-- **Admin dashboard**: http://localhost:8080/admin
-
-## File Structure
-
-```
-se-opp-rigor/
-├── index.js                 # Single Express server file (all API logic)
-├── dist/                    # Built React app (created by npm run build)
-│   ├── index.html
-│   ├── assets/
-│   └── ...
-├── package.json             # Dependencies
-├── src/                     # React source code
-└── DEPLOYMENT.md           # This file
-```
-
-## API Endpoints
-
-The `index.js` file provides these REST endpoints:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `POST /api/opportunities` | POST | Get filtered opportunities |
-| `GET /api/owners` | GET | Get unique owners |
-| `GET /api/close-months` | GET | Get available close months |
-| `GET /api/health` | GET | Health check |
-| `GET /api/stats` | GET | Database statistics |
-| `GET /*` | GET | Serve React app (catch-all) |
-
-## Dependencies
-
-### Required (in package.json)
-
-```json
-{
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "@tanstack/react-query": "^5.83.0",
-    "@tanstack/react-router": "^1.168.25",
-    // ... all other React/UI dependencies
-  }
-}
-```
-
-### Optional (for Snowflake)
-
-```json
-{
-  "optionalDependencies": {
-    "snowflake-sdk": "^1.9.0"
-  }
-}
-```
-
-## Environment Variables
-
-### Mock Data Mode (Default)
-No environment variables required. The server uses built-in mock data.
-
-### Snowflake Mode (Optional)
-Set these environment variables to enable Snowflake:
+`npm start` serves the pre-built bundle, so `src/` edits won't show until you
+rebuild. For live iteration, run Express in one terminal (`npm start`) and the
+Vite dev server in another — it proxies `/api/*` to Express on 8080:
 
 ```bash
-SNOWFLAKE_ACCOUNT=your_account.region
-SNOWFLAKE_USERNAME=your_username
-SNOWFLAKE_PASSWORD=your_password
-SNOWFLAKE_WAREHOUSE=COMPUTE_WH
-SNOWFLAKE_DATABASE=SE_OPP_RIGOR
-SNOWFLAKE_SCHEMA=PUBLIC
-SNOWFLAKE_ROLE=SYSADMIN
+npm run dev          # http://localhost:3000, hot reload
 ```
 
-**Note**: To enable Snowflake, you need to:
-1. Uncomment Snowflake imports in `index.js`
-2. Replace mock data logic with Snowflake queries
-3. Install `snowflake-sdk` dependency
+## Deploying to a platform
 
-## Platform-Specific Instructions
+Any platform that can run `node index.js` works. Ship:
 
-### For Internal Platforms Requiring Single File
+- `index.js` and the backend modules (`routes/`, `services/`, `middleware/`,
+  `db/`, `snowflake-*.js`)
+- `package.json`
+- the built `dist/` directory (run `npm run build` first)
 
-The platform may require copying just `index.js` and `package.json`. Make sure to:
+The platform then runs `npm install` and `node index.js`. Set the same
+environment variables from `.env` in the platform's config, and make sure a
+Postgres instance is reachable.
 
-1. **Build first**: Run `npm run build` to create the `/dist` folder
-2. **Copy files**: Upload:
-   - `index.js`
-   - `package.json`
-   - `dist/` folder (entire directory)
-3. **Install**: Platform runs `npm install`
-4. **Start**: Platform runs `node index.js`
+**Production checklist:**
 
-### Port Configuration
-
-The server automatically uses:
-```javascript
-const PORT = process.env.PORT || 8080;
-```
-
-Your platform should set the `PORT` environment variable, and the server will use it.
-
-## Testing the Deployment
-
-### Test API Endpoints
-
-```bash
-# Test opportunities endpoint
-curl -X POST http://localhost:8080/api/opportunities \
-  -H "Content-Type: application/json" \
-  -d '{"search": "Acme"}'
-
-# Test owners endpoint
-curl http://localhost:8080/api/owners
-
-# Test health endpoint
-curl http://localhost:8080/api/health
-
-# Test stats endpoint
-curl http://localhost:8080/api/stats
-```
-
-### Test Frontend
-
-1. Open http://localhost:8080 in browser
-2. You should see the opportunities list
-3. Test search, filters, sorting
-4. Click on opportunities to see details
-5. Visit http://localhost:8080/admin to see dashboard
+- `DEV_MODE=false` (or unset) and `USE_TEST_OPPS=false`
+- `SNOWFLAKE_AUTH_USER` unset, so each user authenticates under their own RBAC
+- a strong, unique `SESSION_SECRET`
+- Snowflake and Postgres credentials provided as platform env vars
 
 ## Troubleshooting
 
-### "Cannot find module 'express'"
-```bash
-npm install
-```
-
-### "dist folder not found"
-```bash
-npm run build
-```
-
-### "Port already in use"
-```bash
-PORT=8081 npm start
-```
-
-### Frontend shows blank page
-- Check browser console for errors
-- Verify `/dist` folder exists and has content
-- Check that paths in index.html are correct
-
-### API returns 404
-- Verify server is running: `http://localhost:8080/api/health`
-- Check Express routes in `index.js`
-
-## Mock Data
-
-The `index.js` includes 20 sample opportunities with realistic data:
-- Multiple sales stages
-- Various deal sizes ($12K - $310K)
-- 5 different sales owners
-- D-Scores ranging from 8 to 98
-- Realistic notes and next steps
-
-## Upgrading to Snowflake
-
-To connect to real Snowflake data:
-
-1. **Install Snowflake SDK**:
-   ```bash
-   npm install snowflake-sdk
-   ```
-
-2. **Update index.js**:
-   - Uncomment Snowflake imports at top of file
-   - Replace the mock data endpoints with Snowflake queries
-   - Use the SQL from `src/lib/api/opportunities.functions.ts`
-
-3. **Set environment variables** (see above)
-
-4. **Run database schema**:
-   ```bash
-   # In Snowflake, run:
-   # - snowflake-schema.sql
-   # - migrate-mock-data.sql (optional sample data)
-   ```
-
-5. **Restart server**:
-   ```bash
-   npm start
-   ```
-
-## Performance
-
-- **Mock data mode**: Near-instant responses (<10ms)
-- **Client bundle**: ~2MB gzipped
-- **Initial page load**: ~500ms (first visit)
-- **Cached loads**: <100ms
-- **Memory usage**: ~50MB (Express + Node.js)
-
-## Security
-
-- ✅ No credentials in code (use environment variables)
-- ✅ CORS enabled for API endpoints
-- ✅ Input validation on all endpoints
-- ✅ No SQL injection (parameterized queries)
-- ⚠️ No authentication (add if needed)
-
-## Next Steps
-
-1. Deploy to your internal platform
-2. Test with mock data
-3. Configure Snowflake (optional)
-4. Add authentication if required
-5. Set up monitoring/logging
-
-## Support
-
-For issues or questions:
-- Check the main [README.md](README.md)
-- Review [SNOWFLAKE_SETUP.md](SNOWFLAKE_SETUP.md) for database setup
-- Check [ARCHITECTURE.md](ARCHITECTURE.md) for system design
-
----
-
-**Built with Node.js + Express + React**
+| Problem | Fix |
+|---------|-----|
+| `Cannot find module 'express'` | `npm install` |
+| `dist folder not found` | `npm run build` |
+| Port already in use | `PORT=8081 npm start` |
+| Postgres connection errors | Verify the DB is running and `DB_*` vars are correct; check `/admin` |
+| Snowflake connection failed | Check account format (`account_id.region`), role, and network/IP allowlist; check `/admin` |

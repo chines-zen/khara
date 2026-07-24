@@ -25,8 +25,8 @@ npm run dev
 # Open http://localhost:3000
 ```
 
-### Local dev without Snowflake
-Set `USE_MOCK_DATA=true` in `.env` (see `.env.example`) to run against the static opportunities in `src/lib/opportunities.ts` instead of live Snowflake. Pair with `DEV_MODE=true` to bypass Pomerium auth. See [ARCHITECTURE.md](ARCHITECTURE.md#local-dev-flags-env) for all local dev flags.
+### Local dev flags
+The server always queries Snowflake — there is no offline data mode. For local dev you can set `DEV_MODE=true` to bypass Pomerium auth, and `USE_TEST_OPPS=true` to bypass SC scoping and pull the fixed opportunity set in `services/test-opps.js`. See [ARCHITECTURE.md](ARCHITECTURE.md#local-dev-flags-env) for all local dev flags.
 
 ## 📁 Project Structure
 
@@ -112,7 +112,6 @@ DB_USER=postgres
 DB_PASSWORD=
 
 # Local dev flags — see ARCHITECTURE.md for details
-USE_MOCK_DATA=true
 USE_TEST_OPPS=false
 DEV_MODE=true
 DEV_USER_EMAIL=your_email@zendesk.com
@@ -225,9 +224,6 @@ Example: `xy12345.us-east-1`
 
 ### "Table does not exist"
 Run `snowflake-schema.sql` in Snowflake to create tables
-
-### Application still shows mock data
-Set `USE_MOCK_DATA=false` in `.env` (see `services/` for the Snowflake-backed query paths `index.js` uses).
 
 ## 📝 License
 
