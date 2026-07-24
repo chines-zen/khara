@@ -127,16 +127,28 @@ async function cacheScOpportunities(userId, snowflakeUserId, opportunities, scop
  * @returns {Promise<{ lastCachedAt: Date | null, scope: object | null }>}
  */
 export async function getLastScCacheSync() {
-  const result = await pool.query(
-    `SELECT cached_at, scope
-     FROM sc_opportunities_cache
-     ORDER BY cached_at DESC NULLS LAST
-     LIMIT 1`
-  );
-  const row = result.rows[0];
+  // Two separate lookups so a single legacy/partial row (scope written NULL by an
+  // older app version) can't blank out the admin card: report the newest sync
+  // timestamp regardless, but pull scope from the newest row that actually has one.
+  const [latest, latestWithScope] = await Promise.all([
+    pool.query(
+      `SELECT cached_at
+       FROM sc_opportunities_cache
+       ORDER BY cached_at DESC NULLS LAST
+       LIMIT 1`
+    ),
+    pool.query(
+      `SELECT scope
+       FROM sc_opportunities_cache
+       WHERE scope IS NOT NULL
+       ORDER BY cached_at DESC NULLS LAST
+       LIMIT 1`
+    ),
+  ]);
+
   return {
-    lastCachedAt: row?.cached_at ?? null,
-    scope: row?.scope ?? null,
+    lastCachedAt: latest.rows[0]?.cached_at ?? null,
+    scope: latestWithScope.rows[0]?.scope ?? null,
   };
 }
 

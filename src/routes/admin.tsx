@@ -132,7 +132,7 @@ function AdminPage() {
           ) : (
             <div className="space-y-3">
               <div className="text-sm">
-                <span className="text-zd-teal/60">App Updated:</span>{" "}
+                <span className="text-zd-teal/60">Last Data Sync:</span>{" "}
                 <code className="bg-zd-bg px-2 py-1 rounded">
                   {health?.appUpdatedAt
                     ? new Date(health.appUpdatedAt).toLocaleString()
@@ -143,10 +143,10 @@ function AdminPage() {
               {/* Scope of the latest successful sync */}
               <div className="border-t border-zd-border pt-3">
                 <div className="text-sm text-zd-teal/60 mb-2">
-                  Latest sync scope
+                  Sync Scope:
                 </div>
                 <dl className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-sm">
-                  <dt className="text-zd-teal/60">SE Emails</dt>
+                  <dt className="text-zd-teal/60">SEs:</dt>
                   <dd>
                     {scEmails.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
@@ -164,10 +164,10 @@ function AdminPage() {
                     )}
                   </dd>
 
-                  <dt className="text-zd-teal/60">ARR Threshold</dt>
+                  <dt className="text-zd-teal/60">ARR Threshold:</dt>
                   <dd>{formatArr(scope?.arrThreshold)}</dd>
 
-                  <dt className="text-zd-teal/60">Fiscal Year</dt>
+                  <dt className="text-zd-teal/60">Close Date:</dt>
                   <dd>{scope ? formatCloseWindow(scope) : "—"}</dd>
                 </dl>
               </div>
