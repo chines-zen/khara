@@ -84,8 +84,7 @@ se-opp-rigor/
 
 ## 🗄️ Local Setup
 
-A fresh clone (no `.env`, no database) needs these steps in order. See
-[DEPLOYMENT.md](DEPLOYMENT.md) for the same steps with more detail.
+A fresh clone (no `.env`, no database) needs these steps in order.
 
 ### 1. Configure environment
 ```bash
