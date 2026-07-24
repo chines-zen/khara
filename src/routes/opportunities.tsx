@@ -32,6 +32,20 @@ const SORT_LABELS: Record<SortOption, string> = {
   closeDate: "Close Date",
 };
 
+// Per-browser flag so the Salesforce staleness disclaimer stays dismissed
+// across reloads and route remounts.
+const DISCLAIMER_DISMISSED_KEY = "sfdcDisclaimerDismissed";
+
+// Show the disclaimer unless this browser has already dismissed it. Falls back
+// to showing it if storage is unavailable (private mode, blocked cookies).
+function readDisclaimerVisible() {
+  try {
+    return localStorage.getItem(DISCLAIMER_DISMISSED_KEY) !== "true";
+  } catch {
+    return true;
+  }
+}
+
 
 type OpportunitiesSearch = {
   oppId?: string;
@@ -122,7 +136,7 @@ function OpportunitiesPage() {
   const { oppId } = Route.useSearch();
   const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
-  const [showDisclaimer, setShowDisclaimer] = useState(true);
+  const [showDisclaimer, setShowDisclaimer] = useState(readDisclaimerVisible);
   const [sortBy, setSortBy] = useState<SortOption>("closeDate");
   const [sortOpen, setSortOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -203,6 +217,15 @@ function OpportunitiesPage() {
 
     loadSavedFilters();
   }, []);
+
+  function dismissDisclaimer() {
+    setShowDisclaimer(false);
+    try {
+      localStorage.setItem(DISCLAIMER_DISMISSED_KEY, "true");
+    } catch {
+      // Storage unavailable — dismissal still applies for this session.
+    }
+  }
 
   // Save filters to database whenever they change (debounced)
   useEffect(() => {
@@ -320,7 +343,7 @@ function OpportunitiesPage() {
             </p>
             <button
               type="button"
-              onClick={() => setShowDisclaimer(false)}
+              onClick={dismissDisclaimer}
               aria-label="Dismiss disclaimer"
               className="shrink-0 text-zd-teal/70 hover:text-zd-dark transition-colors"
             >
