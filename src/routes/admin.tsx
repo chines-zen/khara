@@ -52,7 +52,7 @@ function AdminPage() {
       <AppNav />
       <main className="max-w-[1440px] mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">System Admin</h1>
+          <h1 className="text-2xl font-bold">Diagnostics</h1>
         </div>
 
         {/* Health Check Card */}

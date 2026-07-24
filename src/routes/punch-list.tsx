@@ -7,7 +7,7 @@ import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
-import { sfRecordUrl } from "@/lib/sfdc";
+import { sfRecordUrl, notifyExtension } from "@/lib/sfdc";
 import { useIsManager } from "@/hooks/use-is-manager";
 import {
   buildPunchList,
@@ -69,7 +69,15 @@ function PunchListPage() {
     [scopedOpportunities, hiddenIds, settings],
   );
 
+  // Keep the "Punch List in SFDC" extension supplied with the current list so
+  // any opp opened in SFDC (single link or Open All) can surface its criteria.
+  useEffect(() => {
+    notifyExtension(rows.map((r) => ({ oppId: r.opp.id, reasons: r.reasons })));
+  }, [rows]);
+
   const handleOpenAll = () => {
+    // Stage the full list before opening tabs so every spawned tab finds its data.
+    notifyExtension(rows.map((r) => ({ oppId: r.opp.id, reasons: r.reasons })));
     rows.forEach((row) => window.open(sfRecordUrl(row.opp.id), "_blank", "noopener"));
   };
 
@@ -164,6 +172,9 @@ function PunchListPage() {
                           href={sfRecordUrl(opp.id)}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={() =>
+                            notifyExtension([{ oppId: opp.id, reasons }])
+                          }
                           className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-zd-bg text-zd-teal/80 border border-zd-border rounded hover:text-zd-dark hover:border-zd-teal/40 transition-colors"
                         >
                           <ExternalLink className="size-3" />
