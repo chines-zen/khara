@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Settings, RefreshCw } from "lucide-react";
+import { Settings, RefreshCw, AlertTriangle } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePreferredName, useTimezone } from "@/lib/preferences";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
+import { fetchActivities } from "@/lib/api/activities";
+import {
+  DATA_SYNC_PENDING_QUERY_KEY,
+  fetchDataSyncPending,
+  setDataSyncPending,
+} from "@/lib/api/data-sync-pending";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
 import { useActivitiesEnabled } from "@/hooks/use-activities-enabled";
@@ -60,6 +72,11 @@ export function AppNav() {
     queryFn: fetchHiddenOpportunities,
   });
 
+  const { data: syncPending = false } = useQuery({
+    queryKey: DATA_SYNC_PENDING_QUERY_KEY,
+    queryFn: fetchDataSyncPending,
+  });
+
   const punchListCount = useMemo(
     () =>
       buildPunchList(data?.opportunities ?? [], hiddenIds, punchListSettings)
@@ -70,11 +87,28 @@ export function AppNav() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await fetch("/api/opportunities/my-sc-opps/cache", {
-        method: "DELETE",
-        credentials: "include",
-      });
-      await queryClient.refetchQueries({ queryKey: ["opportunities"] });
+      // Opps: drop the cache blob so it's fully re-pulled (they change daily).
+      // Activities: force a resync now (incremental for known SEs, full backfill
+      // for any newly-scoped ones) - keeps watermarks, unlike DELETE .../cache.
+      // D-Score: no list-level query; invalidate so the next opp-open refetches
+      // through the (now incremental) per-opp sync path.
+      await Promise.all([
+        fetch("/api/opportunities/my-sc-opps/cache", {
+          method: "DELETE",
+          credentials: "include",
+        }),
+        activitiesEnabled
+          ? fetchActivities({ force: true }).catch(() => undefined)
+          : Promise.resolve(),
+      ]);
+      // Data now matches current settings - clear the "needs re-sync" warning.
+      await setDataSyncPending(false);
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["opportunities"] }),
+        queryClient.invalidateQueries({ queryKey: ["activities"] }),
+        queryClient.invalidateQueries({ queryKey: ["dispassionateReviews"] }),
+        queryClient.invalidateQueries({ queryKey: DATA_SYNC_PENDING_QUERY_KEY }),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
@@ -129,13 +163,32 @@ export function AppNav() {
         </div>
       </div>
       <div className="flex items-center gap-[15px]">
-        <span
-          className="text-white/50 text-[12px] font-mono leading-tight flex flex-col items-end"
-          title="Last refreshed"
-        >
-          <span>Last Data Sync</span>
-          <span>{lastRefreshed}</span>
-        </span>
+        <div className="flex items-center gap-[8px]">
+          {syncPending && (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    aria-label="Re-sync data to see changes."
+                    className="flex items-center text-amber-400"
+                  >
+                    <AlertTriangle className="size-4" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Re-sync data to see changes.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          <span
+            className="text-white/50 text-[12px] font-mono leading-tight flex flex-col items-end"
+            title="Last refreshed"
+          >
+            <span>Last Data Sync</span>
+            <span>{lastRefreshed}</span>
+          </span>
+        </div>
         <button
           type="button"
           onClick={handleRefresh}

@@ -515,15 +515,32 @@ ORDER BY stg.NAME
  * Scoped by CREATED_BY_ID (who logged the activity), not OWNER_ID (who it's
  * assigned to) - the two can differ (e.g. an admin logging an activity on an
  * SE's behalf), and "SE activity logged" should reflect who did the logging.
+ *
+ * Incremental mode (range.since set): only activities that FIRST appeared in a
+ * snapshot on/after `since` are returned. SA_ACTIVITY_DAILY_SNAPSHOT re-stamps
+ * every active activity with a fresh SOURCE_SNAPSHOT_DATE daily (one ID can have
+ * 900+ snapshot dates), so SOURCE_SNAPSHOT_DATE alone can't tell "new" from
+ * "still around" - first-appearance (MIN over the ID) is the only reliable
+ * new-record signal. ACTIVITY_DATE is unusable as a watermark too: activities
+ * are routinely backdated and future-dated. Rows are already deduped to the
+ * latest version per ID, so re-pulling an overlap window is upsert-idempotent.
  * @param {string[]} createdByIds - Snowflake USER_ID(s) of the SE(s) to scope to
- * @param {{ fromDate: string, toDate: string }} range - ISO dates bounding ACTIVITY_DATE
+ * @param {{ fromDate: string, toDate: string, since?: string }} range - ISO dates
+ *   bounding ACTIVITY_DATE; `since` (ISO date/timestamp) switches to incremental mode.
  */
 export function buildActivitiesQuery(createdByIds, range = {}) {
   const ids = Array.isArray(createdByIds) ? createdByIds : [createdByIds];
   const createdByIdList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
-  const { fromDate, toDate } = range;
+  const { fromDate, toDate, since } = range;
   const fromEscaped = fromDate.replace(/'/g, "''");
   const toEscaped = toDate.replace(/'/g, "''");
+
+  // Incremental: keep only IDs whose earliest snapshot is on/after `since`.
+  // MIN() OVER is safe alongside the ACTIVITY_DATE filter because ACTIVITY_DATE
+  // is constant per ID, so the WHERE keeps/drops each ID's rows as a whole.
+  const firstSeenQualify = since
+    ? `\n  AND MIN(SOURCE_SNAPSHOT_DATE) OVER (PARTITION BY ID) >= '${since.replace(/'/g, "''")}'`
+    : '';
 
   return `
 SELECT
@@ -552,7 +569,7 @@ SELECT
 FROM FUNCTIONAL.GTM_SALES_OPS.SA_ACTIVITY_DAILY_SNAPSHOT
 WHERE CREATED_BY_ID IN (${createdByIdList})
   AND ACTIVITY_DATE BETWEEN '${fromEscaped}' AND '${toEscaped}'
-QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) = 1
+QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) = 1${firstSeenQualify}
 `;
 }
 
@@ -576,11 +593,20 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) =
  *     digit is the sub-score (e.g. "2 - 71% to 85%; ...").
  *   - VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000' marks the current SCD2 version;
  *     we filter to it so edit-history versions of the same review don't double-count.
+ * Incremental mode (`since` set): only reviews whose current version became
+ * valid on/after `since` are returned. VALID_FROM_TIMESTAMP advances whenever a
+ * review is created OR edited (a new SCD2 version), so this catches both new
+ * reviews and edits; the ON CONFLICT (id) upsert dedups against what's cached.
  * @param {string | string[]} opportunityIds - CRM opportunity id(s) (18-char form)
+ * @param {{ since?: string }} [opts] - `since` (ISO timestamp) switches to incremental mode
  */
-export function buildDispassionateReviewsQuery(opportunityIds) {
+export function buildDispassionateReviewsQuery(opportunityIds, opts = {}) {
   const ids = Array.isArray(opportunityIds) ? opportunityIds : [opportunityIds];
   const idList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
+  const { since } = opts;
+  const sinceClause = since
+    ? `\n  AND VALID_FROM_TIMESTAMP >= '${since.replace(/'/g, "''")}'`
+    : '';
 
   return `
 SELECT
@@ -629,7 +655,7 @@ FROM CLEANSED.SALESFORCE.SALESFORCE_DISPASSIONATE_REVIEW_C_SCD2
 WHERE OPPORTUNITY_C IN (${idList})
   -- Current SCD2 version only (avoid double-counting edit-history versions)
   AND VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
-  AND IS_DELETED = FALSE
+  AND IS_DELETED = FALSE${sinceClause}
 ORDER BY OPPORTUNITY_C, VALID_FROM_TIMESTAMP
 `;
 }

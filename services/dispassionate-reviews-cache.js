@@ -7,6 +7,11 @@ import { getScOpportunities } from './sc-opportunities-cache.js';
 // than daily activity data, so a longer TTL than the 12h used elsewhere is fine.
 const CACHE_TTL_HOURS = 24;
 
+// Days subtracted from an opp's last-sync watermark on an incremental pull, so a
+// review created/edited right at the boundary (or a late-landing SCD2 version)
+// is never skipped. Overlap is harmless - the upsert is idempotent on review id.
+const INCREMENTAL_BUFFER_DAYS = 2;
+
 // Every mirrored column, in insert order (used to build the upsert statement).
 const REVIEW_COLUMNS = [
   'id',
@@ -92,7 +97,9 @@ function computeSummedDScore(row) {
  * page (same ARR/close-date/stage scope, same manager scEmails handling).
  * @param {number} userId - PostgreSQL user id
  * @param {string} userEmail - identity to run Snowflake queries as
- * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string, scEmails?: string[] }} [scope]
+ * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string, scEmails?: string[], force?: boolean }} [scope]
+ *   `force` (the NavBar "Refresh Data" button) resyncs every in-scope opp now,
+ *   ignoring the TTL gate - incrementally for opps already synced, full for new ones.
  * @returns {Promise<{ reviews: object[], cached: boolean, cachedAt: Date | null }>}
  */
 export async function getDispassionateReviews(userId, userEmail, scope = {}) {
@@ -103,10 +110,10 @@ export async function getDispassionateReviews(userId, userEmail, scope = {}) {
     return { reviews: [], cached: true, cachedAt: null };
   }
 
-  const staleIds = await getStaleOpportunityIds(opportunityIds);
-  if (staleIds.length > 0) {
-    console.log(`[D-Score Cache] MISS - syncing ${staleIds.length} opp(s) from Snowflake`);
-    await syncOpportunitiesFromSnowflake(staleIds, userEmail);
+  const idsToSync = scope.force ? opportunityIds : await getStaleOpportunityIds(opportunityIds);
+  if (idsToSync.length > 0) {
+    console.log(`[D-Score Cache] ${scope.force ? 'FORCE' : 'MISS'} - syncing ${idsToSync.length} opp(s) from Snowflake`);
+    await syncOpportunitiesFromSnowflake(idsToSync, userEmail);
   } else {
     console.log(`[D-Score Cache] HIT - all ${opportunityIds.length} opp(s) fresh`);
   }
@@ -114,7 +121,7 @@ export async function getDispassionateReviews(userId, userEmail, scope = {}) {
   const reviews = await getCachedReviews(opportunityIds);
   const cachedAt = await getOldestSyncTime(opportunityIds);
 
-  return { reviews, cached: staleIds.length === 0, cachedAt };
+  return { reviews, cached: idsToSync.length === 0, cachedAt };
 }
 
 /**
@@ -150,6 +157,23 @@ async function getStaleOpportunityIds(opportunityIds) {
   return opportunityIds.filter((id) => !freshIds.has(id));
 }
 
+// Map of opportunity_id -> last_synced_at (Date) for opps we've synced before.
+// Absence from the map means "never synced" -> needs a full history pull.
+async function getSyncWatermarks(opportunityIds) {
+  const result = await pool.query(
+    `SELECT opportunity_id, last_synced_at FROM dispassionate_reviews_sync_meta WHERE opportunity_id = ANY($1)`,
+    [opportunityIds],
+  );
+  return new Map(result.rows.map((r) => [r.opportunity_id, r.last_synced_at]));
+}
+
+// Watermark (epoch ms) minus the safety buffer, as a YYYY-MM-DD string to
+// compare against VALID_FROM_TIMESTAMP.
+function bufferedSince(epochMs) {
+  const d = new Date(epochMs - INCREMENTAL_BUFFER_DAYS * 24 * 60 * 60 * 1000);
+  return d.toISOString().split('T')[0];
+}
+
 async function getOldestSyncTime(opportunityIds) {
   const result = await pool.query(
     `SELECT MIN(last_synced_at) AS oldest FROM dispassionate_reviews_sync_meta WHERE opportunity_id = ANY($1)`,
@@ -159,8 +183,23 @@ async function getOldestSyncTime(opportunityIds) {
 }
 
 async function syncOpportunitiesFromSnowflake(opportunityIds, userEmail) {
-  const sql = buildDispassionateReviewsQuery(opportunityIds);
-  const rows = await executeQuery(sql, undefined, userEmail);
+  // Split opps by whether we've ever synced them. Newly-scoped opps (no
+  // watermark row) get a full history pull; already-known opps only need
+  // reviews created/edited since their last sync (minus a safety buffer).
+  const watermarks = await getSyncWatermarks(opportunityIds);
+  const newIds = opportunityIds.filter((id) => !watermarks.has(id));
+  const knownIds = opportunityIds.filter((id) => watermarks.has(id));
+
+  const rows = [];
+  if (newIds.length > 0) {
+    console.log(`[D-Score Cache] Full pull for ${newIds.length} newly-scoped opp(s)`);
+    rows.push(...await executeQuery(buildDispassionateReviewsQuery(newIds), undefined, userEmail));
+  }
+  if (knownIds.length > 0) {
+    const since = bufferedSince(Math.min(...knownIds.map((id) => watermarks.get(id).getTime())));
+    console.log(`[D-Score Cache] Incremental pull for ${knownIds.length} opp(s) since ${since}`);
+    rows.push(...await executeQuery(buildDispassionateReviewsQuery(knownIds, { since }), undefined, userEmail));
+  }
 
   const placeholders = REVIEW_COLUMNS.map((_, i) => `$${i + 1}`).join(', ');
   const updateSet = REVIEW_COLUMNS.filter((c) => c !== 'id')

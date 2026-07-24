@@ -32,8 +32,11 @@ export type ActivitiesResponse = {
   };
 };
 
-export async function fetchActivities(): Promise<ActivitiesResponse> {
-  const response = await fetch("/api/activities", {
+export async function fetchActivities(
+  options: { force?: boolean } = {},
+): Promise<ActivitiesResponse> {
+  const url = options.force ? "/api/activities?force=true" : "/api/activities";
+  const response = await fetch(url, {
     credentials: "include",
   });
 

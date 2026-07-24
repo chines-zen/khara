@@ -438,7 +438,11 @@ app.get('/api/activities', authenticateWithPomerium, async (req, res) => {
     // if a stale preference value has it set (e.g. is_manager was revoked).
     const scEmails = req.user.is_manager ? scope.scEmails : [];
 
-    const result = await getActivities(req.user.email, { scEmails });
+    // ?force=true (NavBar "Refresh Data") bypasses the TTL gate and resyncs now -
+    // incrementally for SEs already synced, full-backfill for newly-scoped ones.
+    const force = req.query.force === 'true';
+
+    const result = await getActivities(req.user.email, { scEmails, force });
 
     res.json({
       activities: result.activities,

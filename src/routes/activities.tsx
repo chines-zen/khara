@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   Check,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -318,9 +319,9 @@ function ActivitiesPage() {
   const [groupByOpen, setGroupByOpen] = useState(false);
   const isManager = useIsManager();
 
-  const { data, isError, error } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["activities"],
-    queryFn: fetchActivities,
+    queryFn: () => fetchActivities(),
     retry: false,
   });
   const activities = data?.activities ?? [];
@@ -348,6 +349,26 @@ function ActivitiesPage() {
     () => buildSubTypeChartData(filtered),
     [filtered],
   );
+
+  if (isLoading) {
+    return (
+      <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 min-h-screen">
+        <AppNav />
+        <main className="p-6">
+          <div className="bg-white border border-zd-border rounded p-12 flex flex-col items-center justify-center gap-3 text-center">
+            <Loader2 className="size-6 text-zd-teal animate-spin" />
+            <div className="text-sm font-medium text-zd-dark">
+              Loading activities…
+            </div>
+            <div className="text-xs text-zd-teal/60 max-w-sm">
+              This can take a moment — we're pulling a large set of activity
+              records. This is normal.
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   if (isError) {
     return (

@@ -14,6 +14,10 @@ import {
 } from "@/lib/api/user-preferences";
 import { MANAGER_SCOPE_GATE_QUERY_KEY } from "@/lib/api/manager-scope";
 import {
+  DATA_SYNC_PENDING_QUERY_KEY,
+  setDataSyncPending,
+} from "@/lib/api/data-sync-pending";
+import {
   DEFAULT_ARR_THRESHOLD,
   DEFAULT_CLOSE_DATE_PRESET,
   resolveCloseDatePreset,
@@ -53,6 +57,19 @@ const TIMEZONE_OPTIONS = [
 
 const BROWSER_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+// Stable string of the scope fields that affect which data gets synced: SE
+// emails (order-insensitive), ARR threshold, and the close-date/fiscal-year
+// selection. A change here means the cached data no longer matches settings.
+function scopeSignature(settings: OppScopeSettings): string {
+  return JSON.stringify({
+    scEmails: [...(settings.scEmails ?? [])].sort(),
+    arrThreshold: settings.arrThreshold,
+    closeDatePreset: settings.closeDatePreset,
+    closeDateFrom: settings.closeDateFrom ?? null,
+    closeDateTo: settings.closeDateTo ?? null,
+  });
+}
+
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
@@ -83,6 +100,11 @@ function SettingsPage() {
   const [isManager, setIsManager] = useState(false);
   const [scEmails, setScEmails] = useState<string[]>([]);
   const [scEmailInput, setScEmailInput] = useState("");
+  // Signature of the scope fields (SE emails, ARR, close-date preset) as last
+  // saved, so a save that changes any of them can flag data as needing a re-sync.
+  const [savedScopeSignature, setSavedScopeSignature] = useState<string | null>(
+    null,
+  );
 
   const resolvedRange =
     closeDatePreset === "custom"
@@ -129,6 +151,8 @@ function SettingsPage() {
         if (savedScope.scEmails) {
           setScEmails(savedScope.scEmails);
         }
+
+        setSavedScopeSignature(scopeSignature(savedScope));
       },
     );
   }, []);
@@ -159,6 +183,18 @@ function SettingsPage() {
     );
   }, []);
 
+  // If the scope fields changed since they were last saved, flag that cached
+  // data no longer matches settings (shows the re-sync warning in the NavBar).
+  // Also updates the baseline so a second save with the same values won't re-flag.
+  const flagResyncIfScopeChanged = async (settings: OppScopeSettings) => {
+    const nextSignature = scopeSignature(settings);
+    if (savedScopeSignature !== null && nextSignature !== savedScopeSignature) {
+      await setDataSyncPending(true);
+      queryClient.invalidateQueries({ queryKey: DATA_SYNC_PENDING_QUERY_KEY });
+    }
+    setSavedScopeSignature(nextSignature);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await saveUserPreference("preferredName", preferredName.trim());
@@ -173,6 +209,7 @@ function SettingsPage() {
         scEmails,
       };
       await saveUserPreference("oppScopeSettings", settings);
+      await flagResyncIfScopeChanged(settings);
       await fetch("/api/opportunities/my-sc-opps/cache", {
         method: "DELETE",
         credentials: "include",
@@ -198,6 +235,7 @@ function SettingsPage() {
       scEmails: isManager ? scEmails : [],
     };
     await saveUserPreference("oppScopeSettings", settings);
+    await flagResyncIfScopeChanged(settings);
     await fetch("/api/opportunities/my-sc-opps/cache", {
       method: "DELETE",
       credentials: "include",
