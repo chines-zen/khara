@@ -45,7 +45,7 @@ export async function ensureDefaultOppScope(userId) {
  * returned as saved here without checking the caller's manager status — callers
  * must scrub it to [] for non-managers before using it in a query.
  * @param {number} userId
- * @returns {Promise<{ arrThreshold: number, closeDateFrom: string, closeDateTo: string, scEmails: string[] }>}
+ * @returns {Promise<{ arrThreshold: number, closeDatePreset: import('../fiscal-quarter.js').CloseDatePreset, closeDateFrom: string, closeDateTo: string, scEmails: string[] }>}
  */
 export async function getEffectiveOppScope(userId) {
   const saved = await getUserPreference(userId, PREFERENCE_KEY);
@@ -55,6 +55,7 @@ export async function getEffectiveOppScope(userId) {
 
   return {
     arrThreshold: saved?.arrThreshold ?? DEFAULT_ARR_THRESHOLD,
+    closeDatePreset: preset,
     closeDateFrom: range.from,
     closeDateTo: range.to,
     scEmails: Array.isArray(saved?.scEmails) ? saved.scEmails : [],

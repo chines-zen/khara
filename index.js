@@ -6,18 +6,16 @@ import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
 
 // Snowflake imports
-import { connectToSnowflake, executeQuery, isSnowflakeConnected, getSnowflakeLastError } from './snowflake-connection.js';
+import { connectToSnowflake, executeQuery } from './snowflake-connection.js';
 import {
   buildOpportunitiesQuery,
   buildOwnersQuery,
   buildCloseMonthsQuery,
-  buildStatsQuery,
   buildScOpportunitiesQuery,
-  buildSnowflakeFreshnessQuery,
 } from './snowflake-queries.js';
 
 // Database and auth
-import { initializeDatabase, checkDatabaseHealth, pool } from './db/index.js';
+import { initializeDatabase, checkDatabaseHealth, getPostgresStats, pool } from './db/index.js';
 import { authenticateWithPomerium } from './middleware/auth.js';
 import { createSessionMiddleware } from './middleware/session.js';
 
@@ -193,44 +191,22 @@ function transformOpportunity(row) {
 // PUBLIC API ENDPOINTS (no auth required)
 // ============================================================================
 
-// Health check - includes both Snowflake and PostgreSQL status
+// Health check - app freshness (when the app last synced opportunity data from
+// Snowflake) plus the scope that sync covered, and feature-flag hints the
+// frontend needs. PostgreSQL status and mirror-table counts live in /api/stats.
 app.get('/api/health', async (req, res) => {
-  const dbHealth = await checkDatabaseHealth();
-  const snowflakeConnected = isSnowflakeConnected();
-
-  // Server-side freshness (when Snowflake's source data was last refreshed) is
-  // only queryable over an already-established connection - EXTERNALBROWSER mode
-  // has no shared connection until a user logs in, so this stays null there.
-  let serverUpdatedAt = null;
-  if (snowflakeConnected) {
-    try {
-      const rows = await executeQuery(buildSnowflakeFreshnessQuery());
-      const lastRunDate = rows[0]?.LAST_RUN_DATE;
-      serverUpdatedAt = lastRunDate ? lastRunDate.toISOString().split('T')[0] : null;
-    } catch (error) {
-      console.error('Error fetching Snowflake freshness:', error);
-    }
-  }
-
-  const appUpdatedAt = await getLastScCacheSync().catch((error) => {
+  const { lastCachedAt, scope } = await getLastScCacheSync().catch((error) => {
     console.error('Error fetching last SC cache sync:', error);
-    return null;
+    return { lastCachedAt: null, scope: null };
   });
 
   res.json({
-    snowflake: {
-      status: snowflakeConnected ? 'connected' : 'disconnected',
-      database: 'Snowflake',
-      lastError: snowflakeConnected ? null : getSnowflakeLastError(),
-      serverUpdatedAt,
-    },
-    postgresql: dbHealth,
-    appUpdatedAt,
+    appUpdatedAt: lastCachedAt,
+    lastSyncScope: scope,
     devMode: process.env.DEV_MODE === 'true',
     activitiesEnabled: process.env.ACTIVITIES_ENABLED === 'true',
     doNotClickActive: process.env.DO_NOT_CLICK_ACTIVE === 'true',
     claudeTokenConfigured: Boolean(process.env.AWS_BEARER_TOKEN_BEDROCK),
-    timestamp: new Date().toISOString(),
   });
 });
 
@@ -655,18 +631,18 @@ app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
   }
 });
 
-// GET /api/stats - Get aggregate stats
+// GET /api/stats - PostgreSQL mirror status + row counts (Opps / D-Scores /
+// Activities). These reflect what the app has cached locally, not Snowflake.
 app.get('/api/stats', authenticateWithPomerium, async (req, res) => {
   try {
-    const sql = buildStatsQuery();
-    const rows = await executeQuery(sql, undefined, req.user.email);
+    const [postgresql, counts] = await Promise.all([
+      checkDatabaseHealth(),
+      getPostgresStats(),
+    ]);
 
-    const stats = rows[0] || {};
     res.json({
-      totalOpportunities: stats.TOTAL_OPPORTUNITIES || 0,
-      totalStages: stats.TOTAL_STAGES || 0,
-      totalOwners: stats.TOTAL_OWNERS || 0,
-      totalPipelineValue: stats.TOTAL_PIPELINE_VALUE || 0,
+      postgresql,
+      ...counts,
     });
   } catch (error) {
     console.error('Error fetching stats:', error);

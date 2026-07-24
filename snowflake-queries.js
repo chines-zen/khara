@@ -215,17 +215,6 @@ WHERE dim.RUN_DATE = (
 }
 
 /**
- * Build query for the most recent Snowflake data refresh (RUN_DATE), the
- * same recency marker the opportunities queries filter on.
- */
-export function buildSnowflakeFreshnessQuery() {
-  return `
-SELECT MAX(RUN_DATE) AS last_run_date
-FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT
-`;
-}
-
-/**
  * Build query for getting unique owners
  */
 export function buildOwnersQuery() {
@@ -258,49 +247,6 @@ FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT dim
 WHERE dim.CALENDAR_CLOSEDATE IS NOT NULL
   AND dim.RUN_DATE = (SELECT MAX(RUN_DATE) FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT)
 ORDER BY close_month DESC
-`;
-}
-
-/**
- * Build query for getting opportunity stats
- */
-export function buildStatsQuery() {
-  return `
-SELECT
-    COUNT(*) AS total_opportunities,
-    COUNT(DISTINCT dim.OPPORTUNITY_STAGE_NAME) AS total_stages,
-    COUNT(DISTINCT COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME)) AS total_owners,
-    SUM(arr.product_arr_usd) AS total_pipeline_value
-FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT dim
-LEFT JOIN (
-    SELECT
-        CRM_OPPORTUNITY_ID,
-        OWNER_ACTUAL_NAME__C_OPPT
-    FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY
-    WHERE SOURCE_SNAPSHOT_DATE = (SELECT MAX(SOURCE_SNAPSHOT_DATE) FROM FUNCTIONAL.GTM_SALES_OPS.CURATED_OPPORTUNITIES_HISTORY)
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY CRM_OPPORTUNITY_ID ORDER BY CRM_OPPORTUNITY_ID) = 1
-) curated
-    ON dim.CRM_OPPORTUNITY_ID = curated.CRM_OPPORTUNITY_ID
-LEFT JOIN (
-    SELECT
-        OPPORTUNITY_ID,
-        OPP_OWNER_NAME
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.OPP_CM_FUNNEL_METRIC_DAILY_SNAPSHOT
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY OPPORTUNITY_ID ORDER BY SNAPSHOT_DATE DESC) = 1
-) funnel
-    ON dim.CRM_OPPORTUNITY_ID = funnel.OPPORTUNITY_ID
-LEFT JOIN (
-    SELECT
-        crm_opportunity_id,
-        SUM(product_arr_usd) AS product_arr_usd,
-        source_snapshot_date
-    FROM PRESENTATION.ENTERPRISE_METRICS.OPPORTUNITY_LEVEL_PIPELINE_BOOKING
-    WHERE is_total_booking = 1
-    GROUP BY crm_opportunity_id, source_snapshot_date
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY crm_opportunity_id ORDER BY source_snapshot_date DESC) = 1
-) arr
-    ON dim.CRM_OPPORTUNITY_ID = arr.crm_opportunity_id
-WHERE dim.RUN_DATE = (SELECT MAX(RUN_DATE) FROM FOUNDATIONAL.CUSTOMER.DIM_CRM_OPPORTUNITIES_DAILY_SNAPSHOT)
 `;
 }
 
