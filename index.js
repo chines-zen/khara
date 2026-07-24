@@ -28,7 +28,7 @@ import { getDispassionateReviewsForOpportunity } from './services/dispassionate-
 import { resolveScUserId } from './services/sc-lookup.js';
 import { getEffectiveOppScope } from './services/opp-scope.js';
 import { setEnvVar } from './services/env-writer.js';
-import { validateBedrockToken } from './src/lib/claude-ai.server.js';
+import { validateBedrockToken, MODEL_ID } from './src/lib/claude-ai.server.js';
 
 // Routes
 import preferencesRouter from './routes/preferences.js';
@@ -510,6 +510,31 @@ app.post('/api/config/claude-token', authenticateWithPomerium, async (req, res) 
   } catch (error) {
     console.error('Error saving Claude token:', error);
     res.status(500).json({ error: 'Failed to save token', details: error.message });
+  }
+});
+
+// GET /api/config/ai-backend - AI backend info for the admin page: which model
+// summaries run against and a masked preview of the configured bearer token
+// (first 6 chars + '*****'), never the full secret.
+app.get('/api/config/ai-backend', authenticateWithPomerium, (req, res) => {
+  const token = process.env.AWS_BEARER_TOKEN_BEDROCK || '';
+  res.json({
+    provider: 'Claude (AWS Bedrock)',
+    model: MODEL_ID,
+    tokenConfigured: Boolean(token),
+    tokenPreview: token ? `${token.slice(0, 6)}*****` : null,
+  });
+});
+
+// DELETE /api/config/claude-token - Clear the stored Bedrock bearer token from
+// the local .env (local-dev convenience; same caveats as the POST above).
+app.delete('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
+  try {
+    await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing Claude token:', error);
+    res.status(500).json({ error: 'Failed to clear token', details: error.message });
   }
 });
 

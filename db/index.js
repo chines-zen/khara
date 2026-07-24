@@ -315,9 +315,10 @@ export async function checkDatabaseHealth() {
  *     (opportunities_data is a JSONB array of { id, ... })
  *   - dScores: unique dispassionate_reviews rows (one per review record)
  *   - activities: unique activities rows (one per activity id)
+ *   - summaries: opportunity_summaries rows (one per opportunity, id is UNIQUE)
  */
 export async function getPostgresStats() {
-  const [oppsResult, dScoresResult, activitiesResult] = await Promise.all([
+  const [oppsResult, dScoresResult, activitiesResult, summariesResult] = await Promise.all([
     pool.query(`
       SELECT COUNT(DISTINCT elem->>'id') AS count
       FROM sc_opportunities_cache,
@@ -325,11 +326,13 @@ export async function getPostgresStats() {
     `),
     pool.query('SELECT COUNT(*) AS count FROM dispassionate_reviews'),
     pool.query('SELECT COUNT(*) AS count FROM activities'),
+    pool.query('SELECT COUNT(*) AS count FROM opportunity_summaries'),
   ]);
 
   return {
     totalOpportunities: Number(oppsResult.rows[0]?.count ?? 0),
     totalDScores: Number(dScoresResult.rows[0]?.count ?? 0),
     totalActivities: Number(activitiesResult.rows[0]?.count ?? 0),
+    totalSummaries: Number(summariesResult.rows[0]?.count ?? 0),
   };
 }

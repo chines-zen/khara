@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppNav } from "@/components/opportunities/AppNav";
 
 async function fetchHealth() {
@@ -11,6 +11,23 @@ async function fetchHealth() {
 async function fetchStats() {
   const response = await fetch("/api/stats", { credentials: "include" });
   if (!response.ok) throw new Error("Failed to fetch stats");
+  return response.json();
+}
+
+async function fetchAiBackend() {
+  const response = await fetch("/api/config/ai-backend", {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to fetch AI backend");
+  return response.json();
+}
+
+async function clearClaudeToken() {
+  const response = await fetch("/api/config/claude-token", {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to clear token");
   return response.json();
 }
 
@@ -58,24 +75,32 @@ export const Route = createFileRoute("/admin")({
 });
 
 function AdminPage() {
-  const {
-    data: health,
-    isLoading: healthLoading,
-    refetch: refetchHealth,
-  } = useQuery({
+  const queryClient = useQueryClient();
+
+  const { data: health, isLoading: healthLoading } = useQuery({
     queryKey: ["app-health"],
     queryFn: fetchHealth,
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  const {
-    data: stats,
-    isLoading: statsLoading,
-    refetch: refetchStats,
-  } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["table-stats"],
     queryFn: fetchStats,
     refetchInterval: 60000, // Refresh every minute
+  });
+
+  const aiBackendKey = ["ai-backend"];
+  const { data: aiBackend, isLoading: aiBackendLoading } = useQuery({
+    queryKey: aiBackendKey,
+    queryFn: fetchAiBackend,
+  });
+
+  const clearToken = useMutation({
+    mutationFn: clearClaudeToken,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: aiBackendKey });
+      queryClient.invalidateQueries({ queryKey: ["app-health"] });
+    },
   });
 
   const scope: LastSyncScope | null = health?.lastSyncScope ?? null;
@@ -90,16 +115,10 @@ function AdminPage() {
           <h1 className="text-2xl font-bold">System Admin</h1>
         </div>
 
-        {/* Data Freshness Card */}
+        {/* Snowflake Data Card */}
         <div className="bg-white border border-zd-border rounded-lg p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Data Freshness</h2>
-            <button
-              onClick={() => refetchHealth()}
-              className="text-sm text-zd-teal hover:text-zd-dark transition-colors"
-            >
-              Refresh
-            </button>
+            <h2 className="text-lg font-semibold">Snowflake Data</h2>
           </div>
 
           {healthLoading ? (
@@ -169,18 +188,12 @@ function AdminPage() {
                 </span>
               )}
             </div>
-            <button
-              onClick={() => refetchStats()}
-              className="text-sm text-zd-teal hover:text-zd-dark transition-colors"
-            >
-              Refresh
-            </button>
           </div>
 
           {statsLoading ? (
             <div className="text-sm text-zd-teal/50">Loading statistics...</div>
           ) : stats ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-zd-bg/50 p-4 rounded">
                 <div className="text-sm text-zd-teal/60 mb-1">
                   Opportunities
@@ -201,6 +214,12 @@ function AdminPage() {
                   {(stats.totalActivities ?? 0).toLocaleString()}
                 </div>
               </div>
+              <div className="bg-zd-bg/50 p-4 rounded">
+                <div className="text-sm text-zd-teal/60 mb-1">Summaries</div>
+                <div className="text-2xl font-bold">
+                  {(stats.totalSummaries ?? 0).toLocaleString()}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="text-sm text-red-600">
@@ -209,19 +228,58 @@ function AdminPage() {
           )}
         </div>
 
-        {/* Environment Info */}
+        {/* AI Backend */}
         <div className="bg-white border border-zd-border rounded-lg p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4">Environment</h2>
-          <div className="space-y-2 text-sm font-mono">
-            <div className="flex justify-between">
-              <span className="text-zd-teal/60">Node ENV:</span>
-              <span>{import.meta.env.MODE}</span>
+          <h2 className="text-lg font-semibold mb-4">AI Backend</h2>
+
+          {aiBackendLoading ? (
+            <div className="text-sm text-zd-teal/50">Loading…</div>
+          ) : aiBackend ? (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-zd-teal/60">Model:</span>
+                <span className="font-mono text-right">
+                  {aiBackend.provider ?? aiBackend.model}
+                  {aiBackend.provider && aiBackend.model ? (
+                    <span className="text-zd-teal/60">
+                      {" "}
+                      — {aiBackend.model}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-zd-teal/60">Token:</span>
+                <span className="font-mono">
+                  {aiBackend.tokenConfigured ? (
+                    aiBackend.tokenPreview
+                  ) : (
+                    <span className="text-zd-teal/60">Not configured</span>
+                  )}
+                </span>
+              </div>
+              {aiBackend.tokenConfigured && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => clearToken.mutate()}
+                    disabled={clearToken.isPending}
+                    className="text-sm text-red-600 hover:text-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {clearToken.isPending ? "Clearing…" : "Clear Token"}
+                  </button>
+                  {clearToken.isError && (
+                    <span className="ml-3 text-sm text-red-600">
+                      Failed to clear token
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="flex justify-between">
-              <span className="text-zd-teal/60">Build Time:</span>
-              <span>{new Date().toISOString()}</span>
+          ) : (
+            <div className="text-sm text-red-600">
+              Failed to load AI backend info
             </div>
-          </div>
+          )}
         </div>
       </main>
     </div>
