@@ -89,10 +89,16 @@ function AdminPage() {
     refetchInterval: 60000, // Refresh every minute
   });
 
+  // The AI Backend card exists for local dev only — its Clear Token button
+  // writes to .env, which isn't present/writable in a real deployment. Gate the
+  // whole thing (query + card) on devMode, which the health endpoint reports.
+  const devMode = Boolean(health?.devMode);
+
   const aiBackendKey = ["ai-backend"];
   const { data: aiBackend, isLoading: aiBackendLoading } = useQuery({
     queryKey: aiBackendKey,
     queryFn: fetchAiBackend,
+    enabled: devMode,
   });
 
   const clearToken = useMutation({
@@ -228,59 +234,61 @@ function AdminPage() {
           )}
         </div>
 
-        {/* AI Backend */}
-        <div className="bg-white border border-zd-border rounded-lg p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4">AI Backend</h2>
+        {/* AI Backend — local dev only (Clear Token writes to .env) */}
+        {devMode && (
+          <div className="bg-white border border-zd-border rounded-lg p-6 shadow-sm">
+            <h2 className="text-lg font-semibold mb-4">AI Backend</h2>
 
-          {aiBackendLoading ? (
-            <div className="text-sm text-zd-teal/50">Loading…</div>
-          ) : aiBackend ? (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between gap-4">
-                <span className="text-zd-teal/60">Model:</span>
-                <span className="font-mono text-right">
-                  {aiBackend.provider ?? aiBackend.model}
-                  {aiBackend.provider && aiBackend.model ? (
-                    <span className="text-zd-teal/60">
-                      {" "}
-                      — {aiBackend.model}
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-zd-teal/60">Token:</span>
-                <span className="font-mono">
-                  {aiBackend.tokenConfigured ? (
-                    aiBackend.tokenPreview
-                  ) : (
-                    <span className="text-zd-teal/60">Not configured</span>
-                  )}
-                </span>
-              </div>
-              {aiBackend.tokenConfigured && (
-                <div className="pt-2">
-                  <button
-                    onClick={() => clearToken.mutate()}
-                    disabled={clearToken.isPending}
-                    className="text-sm text-red-600 hover:text-red-700 transition-colors disabled:opacity-50"
-                  >
-                    {clearToken.isPending ? "Clearing…" : "Clear Token"}
-                  </button>
-                  {clearToken.isError && (
-                    <span className="ml-3 text-sm text-red-600">
-                      Failed to clear token
-                    </span>
-                  )}
+            {aiBackendLoading ? (
+              <div className="text-sm text-zd-teal/50">Loading…</div>
+            ) : aiBackend ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span className="text-zd-teal/60">Model:</span>
+                  <span className="font-mono text-right">
+                    {aiBackend.provider ?? aiBackend.model}
+                    {aiBackend.provider && aiBackend.model ? (
+                      <span className="text-zd-teal/60">
+                        {" "}
+                        — {aiBackend.model}
+                      </span>
+                    ) : null}
+                  </span>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-sm text-red-600">
-              Failed to load AI backend info
-            </div>
-          )}
-        </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-zd-teal/60">Token:</span>
+                  <span className="font-mono">
+                    {aiBackend.tokenConfigured ? (
+                      aiBackend.tokenPreview
+                    ) : (
+                      <span className="text-zd-teal/60">Not configured</span>
+                    )}
+                  </span>
+                </div>
+                {aiBackend.tokenConfigured && (
+                  <div className="pt-2">
+                    <button
+                      onClick={() => clearToken.mutate()}
+                      disabled={clearToken.isPending}
+                      className="text-sm text-red-600 hover:text-red-700 transition-colors disabled:opacity-50"
+                    >
+                      {clearToken.isPending ? "Clearing…" : "Clear Token"}
+                    </button>
+                    {clearToken.isError && (
+                      <span className="ml-3 text-sm text-red-600">
+                        Failed to clear token
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-red-600">
+                Failed to load AI backend info
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

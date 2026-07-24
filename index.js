@@ -513,30 +513,37 @@ app.post('/api/config/claude-token', authenticateWithPomerium, async (req, res) 
   }
 });
 
-// GET /api/config/ai-backend - AI backend info for the admin page: which model
-// summaries run against and a masked preview of the configured bearer token
-// (first 6 chars + '*****'), never the full secret.
-app.get('/api/config/ai-backend', authenticateWithPomerium, (req, res) => {
-  const token = process.env.AWS_BEARER_TOKEN_BEDROCK || '';
-  res.json({
-    provider: 'Claude (AWS Bedrock)',
-    model: MODEL_ID,
-    tokenConfigured: Boolean(token),
-    tokenPreview: token ? `${token.slice(0, 6)}*****` : null,
+// DEV_MODE only: the admin page's AI Backend card. It exposes a masked token
+// preview and a Clear Token action that writes to the local .env — neither is
+// meaningful in a real deployment (no writable .env; the token comes from the
+// environment), so these routes aren't even registered there and the card is
+// hidden client-side via the health endpoint's devMode flag.
+if (process.env.DEV_MODE === 'true') {
+  // GET /api/config/ai-backend - which model summaries run against and a masked
+  // preview of the configured bearer token (first 6 chars + '*****'), never the
+  // full secret.
+  app.get('/api/config/ai-backend', authenticateWithPomerium, (req, res) => {
+    const token = process.env.AWS_BEARER_TOKEN_BEDROCK || '';
+    res.json({
+      provider: 'Claude (AWS Bedrock)',
+      model: MODEL_ID,
+      tokenConfigured: Boolean(token),
+      tokenPreview: token ? `${token.slice(0, 6)}*****` : null,
+    });
   });
-});
 
-// DELETE /api/config/claude-token - Clear the stored Bedrock bearer token from
-// the local .env (local-dev convenience; same caveats as the POST above).
-app.delete('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
-  try {
-    await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error clearing Claude token:', error);
-    res.status(500).json({ error: 'Failed to clear token', details: error.message });
-  }
-});
+  // DELETE /api/config/claude-token - clear the stored Bedrock bearer token from
+  // the local .env (same local-dev caveats as the POST above).
+  app.delete('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
+    try {
+      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error clearing Claude token:', error);
+      res.status(500).json({ error: 'Failed to clear token', details: error.message });
+    }
+  });
+}
 
 // GET /api/opportunities/:id/summary/cached - Look up a cached summary without
 // generating one on a miss. Used to populate the UI when an opportunity is
