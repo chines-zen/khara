@@ -33,7 +33,7 @@ There is **one server**: `index.js` (Express). It serves the built React UI as s
 │  │  ├─ opp-scope.js       → effective ARR/close-date scope  │   │
 │  │  ├─ sc-opportunities-cache.js → 12hr Postgres cache      │   │
 │  │  ├─ hidden-opportunities.js → per-user hide/unhide       │   │
-│  │  ├─ summary-cache.js   → AI summary cache (Vertex AI)    │   │
+│  │  ├─ summary-cache.js   → AI summary cache (Claude)       │   │
 │  │  └─ preferences.js     → generic key/value prefs         │   │
 │  └───────┬───────────────────────────────┬───────────────────┘   │
 │          │                               │                       │
@@ -69,7 +69,7 @@ There is no SSR server function layer — that was an earlier iteration of this 
 5. **Cache miss** — builds a scoped SQL query (`snowflake-queries.js`, `buildScOpportunitiesQuery`), runs it (`snowflake-connection.js`, `executeQuery`), transforms rows, and stores the result in Postgres before returning.
 6. **Client** — `GET /api/opportunities/my-sc-opps` returns the opportunity list; the UI (`src/lib/api/sc-opportunities.ts` → `useQuery`) caches it client-side via TanStack Query.
 
-Related endpoints follow the same shape: hide/unhide (`services/hidden-opportunities.js`), preferences CRUD (`routes/preferences.js`), AI summary generation/caching (`services/summary-cache.js` → `src/lib/vertex-ai.server.js` → Vertex AI/Gemini).
+Related endpoints follow the same shape: hide/unhide (`services/hidden-opportunities.js`), preferences CRUD (`routes/preferences.js`), AI summary generation/caching (`services/summary-cache.js` → `src/lib/claude-ai.server.js` → Claude, via Zendesk's internal Bedrock-compatible AI gateway).
 
 ## Local dev flags (`.env`)
 
@@ -100,7 +100,7 @@ src/
 ├── lib/
 │   ├── opportunities.ts       # Shared opportunity types + stage constants
 │   ├── api/                    # fetch() wrappers calling index.js's /api/* routes
-│   └── vertex-ai.server.js    # Imported by services/summary-cache.js (Express-only)
+│   └── claude-ai.server.js    # Imported by services/summary-cache.js (Express-only)
 └── components/                # UI components
 ```
 

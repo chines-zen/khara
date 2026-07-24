@@ -53,7 +53,7 @@ se-opp-rigor/
 - View, search, and filter opportunities by stage, owner, and close month
 - Sort by close date, amount, or staleness
 - Detailed opportunity view with SC notes, manager notes, and next steps
-- D-Score deal health tracking, with an AI-generated summary of recent notes (Vertex AI/Gemini)
+- D-Score deal health tracking, with an AI-generated summary of recent notes (Claude, via Zendesk's internal AI gateway)
 - Hide/unhide opportunities per user
 - Pipeline dashboard with KPIs and a stage breakdown chart
 - Per-user opportunity scope (ARR threshold + close-date window) and preferences (name, date format, timezone)
@@ -117,7 +117,7 @@ DEV_MODE=true
 DEV_USER_EMAIL=your_email@zendesk.com
 ```
 
-See `.env.example` for the full list, including Vertex AI (`GOOGLE_CLOUD_PROJECT`) and session (`SESSION_SECRET`) settings.
+See `.env.example` for the full list, including the AI gateway (`AWS_ENDPOINT_URL_BEDROCK_RUNTIME` / `AWS_BEARER_TOKEN_BEDROCK`) and session (`SESSION_SECRET`) settings.
 
 **Important:** Never commit `.env` to version control!
 
@@ -179,7 +179,7 @@ npm run format
 - **UI Components:** Radix UI
 - **Charts:** Recharts
 - **Databases:** Snowflake (opportunity data), Postgres (sessions, preferences, caching)
-- **AI:** Vertex AI (Gemini) for opportunity note summaries
+- **AI:** Claude (via Zendesk's internal Bedrock-compatible AI gateway) for opportunity note summaries
 - **Icons:** Lucide React
 - **Package Manager:** npm
 
