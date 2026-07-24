@@ -61,7 +61,7 @@ export function AppNav() {
     );
   }, []);
 
-  const { data } = useQuery({
+  const { data, dataUpdatedAt } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
   });
@@ -76,6 +76,24 @@ export function AppNav() {
     queryKey: DATA_SYNC_PENDING_QUERY_KEY,
     queryFn: fetchDataSyncPending,
   });
+
+  // A scope change flags data as needing a re-sync (amber warning). The manual
+  // Refresh button clears it, but a fresh sync also happens whenever the
+  // opportunities query pulls from Snowflake on a cache miss (e.g. the user just
+  // visits the opp page after changing scope). When that resolves as a real pull
+  // (metadata.cached === false), clear the warning too so it doesn't linger and
+  // confuse the user into thinking their data is still stale. Keyed on
+  // dataUpdatedAt so it only fires when a fetch actually resolves.
+  useEffect(() => {
+    if (syncPending && data?.metadata?.cached === false) {
+      setDataSyncPending(false).then(() => {
+        queryClient.invalidateQueries({
+          queryKey: DATA_SYNC_PENDING_QUERY_KEY,
+        });
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataUpdatedAt, syncPending]);
 
   const punchListCount = useMemo(
     () =>
@@ -107,7 +125,9 @@ export function AppNav() {
         queryClient.refetchQueries({ queryKey: ["opportunities"] }),
         queryClient.invalidateQueries({ queryKey: ["activities"] }),
         queryClient.invalidateQueries({ queryKey: ["dispassionateReviews"] }),
-        queryClient.invalidateQueries({ queryKey: DATA_SYNC_PENDING_QUERY_KEY }),
+        queryClient.invalidateQueries({
+          queryKey: DATA_SYNC_PENDING_QUERY_KEY,
+        }),
       ]);
     } finally {
       setIsRefreshing(false);

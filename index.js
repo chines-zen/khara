@@ -6,18 +6,16 @@ import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
 
 // Snowflake imports
-import { connectToSnowflake, executeQuery, isSnowflakeConnected, getSnowflakeLastError } from './snowflake-connection.js';
+import { connectToSnowflake, executeQuery } from './snowflake-connection.js';
 import {
   buildOpportunitiesQuery,
   buildOwnersQuery,
   buildCloseMonthsQuery,
-  buildStatsQuery,
   buildScOpportunitiesQuery,
-  buildSnowflakeFreshnessQuery,
 } from './snowflake-queries.js';
 
 // Database and auth
-import { initializeDatabase, checkDatabaseHealth, pool } from './db/index.js';
+import { initializeDatabase, checkDatabaseHealth, getPostgresStats, pool } from './db/index.js';
 import { authenticateWithPomerium } from './middleware/auth.js';
 import { createSessionMiddleware } from './middleware/session.js';
 
@@ -30,7 +28,7 @@ import { getDispassionateReviewsForOpportunity } from './services/dispassionate-
 import { resolveScUserId } from './services/sc-lookup.js';
 import { getEffectiveOppScope } from './services/opp-scope.js';
 import { setEnvVar } from './services/env-writer.js';
-import { validateBedrockToken } from './src/lib/claude-ai.server.js';
+import { validateBedrockToken, MODEL_ID } from './src/lib/claude-ai.server.js';
 
 // Routes
 import preferencesRouter from './routes/preferences.js';
@@ -193,44 +191,22 @@ function transformOpportunity(row) {
 // PUBLIC API ENDPOINTS (no auth required)
 // ============================================================================
 
-// Health check - includes both Snowflake and PostgreSQL status
+// Health check - app freshness (when the app last synced opportunity data from
+// Snowflake) plus the scope that sync covered, and feature-flag hints the
+// frontend needs. PostgreSQL status and mirror-table counts live in /api/stats.
 app.get('/api/health', async (req, res) => {
-  const dbHealth = await checkDatabaseHealth();
-  const snowflakeConnected = isSnowflakeConnected();
-
-  // Server-side freshness (when Snowflake's source data was last refreshed) is
-  // only queryable over an already-established connection - EXTERNALBROWSER mode
-  // has no shared connection until a user logs in, so this stays null there.
-  let serverUpdatedAt = null;
-  if (snowflakeConnected) {
-    try {
-      const rows = await executeQuery(buildSnowflakeFreshnessQuery());
-      const lastRunDate = rows[0]?.LAST_RUN_DATE;
-      serverUpdatedAt = lastRunDate ? lastRunDate.toISOString().split('T')[0] : null;
-    } catch (error) {
-      console.error('Error fetching Snowflake freshness:', error);
-    }
-  }
-
-  const appUpdatedAt = await getLastScCacheSync().catch((error) => {
+  const { lastCachedAt, scope } = await getLastScCacheSync().catch((error) => {
     console.error('Error fetching last SC cache sync:', error);
-    return null;
+    return { lastCachedAt: null, scope: null };
   });
 
   res.json({
-    snowflake: {
-      status: snowflakeConnected ? 'connected' : 'disconnected',
-      database: 'Snowflake',
-      lastError: snowflakeConnected ? null : getSnowflakeLastError(),
-      serverUpdatedAt,
-    },
-    postgresql: dbHealth,
-    appUpdatedAt,
+    appUpdatedAt: lastCachedAt,
+    lastSyncScope: scope,
     devMode: process.env.DEV_MODE === 'true',
     activitiesEnabled: process.env.ACTIVITIES_ENABLED === 'true',
     doNotClickActive: process.env.DO_NOT_CLICK_ACTIVE === 'true',
     claudeTokenConfigured: Boolean(process.env.AWS_BEARER_TOKEN_BEDROCK),
-    timestamp: new Date().toISOString(),
   });
 });
 
@@ -537,6 +513,38 @@ app.post('/api/config/claude-token', authenticateWithPomerium, async (req, res) 
   }
 });
 
+// DEV_MODE only: the admin page's AI Backend card. It exposes a masked token
+// preview and a Clear Token action that writes to the local .env — neither is
+// meaningful in a real deployment (no writable .env; the token comes from the
+// environment), so these routes aren't even registered there and the card is
+// hidden client-side via the health endpoint's devMode flag.
+if (process.env.DEV_MODE === 'true') {
+  // GET /api/config/ai-backend - which model summaries run against and a masked
+  // preview of the configured bearer token (first 6 chars + '*****'), never the
+  // full secret.
+  app.get('/api/config/ai-backend', authenticateWithPomerium, (req, res) => {
+    const token = process.env.AWS_BEARER_TOKEN_BEDROCK || '';
+    res.json({
+      provider: 'Claude (AWS Bedrock)',
+      model: MODEL_ID,
+      tokenConfigured: Boolean(token),
+      tokenPreview: token ? `${token.slice(0, 6)}*****` : null,
+    });
+  });
+
+  // DELETE /api/config/claude-token - clear the stored Bedrock bearer token from
+  // the local .env (same local-dev caveats as the POST above).
+  app.delete('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
+    try {
+      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error clearing Claude token:', error);
+      res.status(500).json({ error: 'Failed to clear token', details: error.message });
+    }
+  });
+}
+
 // GET /api/opportunities/:id/summary/cached - Look up a cached summary without
 // generating one on a miss. Used to populate the UI when an opportunity is
 // opened, so switching between opps never triggers an AI call.
@@ -655,18 +663,18 @@ app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
   }
 });
 
-// GET /api/stats - Get aggregate stats
+// GET /api/stats - PostgreSQL mirror status + row counts (Opps / D-Scores /
+// Activities). These reflect what the app has cached locally, not Snowflake.
 app.get('/api/stats', authenticateWithPomerium, async (req, res) => {
   try {
-    const sql = buildStatsQuery();
-    const rows = await executeQuery(sql, undefined, req.user.email);
+    const [postgresql, counts] = await Promise.all([
+      checkDatabaseHealth(),
+      getPostgresStats(),
+    ]);
 
-    const stats = rows[0] || {};
     res.json({
-      totalOpportunities: stats.TOTAL_OPPORTUNITIES || 0,
-      totalStages: stats.TOTAL_STAGES || 0,
-      totalOwners: stats.TOTAL_OWNERS || 0,
-      totalPipelineValue: stats.TOTAL_PIPELINE_VALUE || 0,
+      postgresql,
+      ...counts,
     });
   } catch (error) {
     console.error('Error fetching stats:', error);

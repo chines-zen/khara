@@ -12,5 +12,4 @@ declare module "../../../snowflake-queries.js" {
   export function buildOpportunitiesQuery(filters?: Record<string, unknown>): string;
   export function buildOwnersQuery(): string;
   export function buildCloseMonthsQuery(): string;
-  export function buildStatsQuery(): string;
 }

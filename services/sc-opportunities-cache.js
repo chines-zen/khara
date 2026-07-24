@@ -34,7 +34,7 @@ export async function getScOpportunities(userId, userEmail, scope = {}) {
   console.log(`[SC Cache] Returned ${opportunities.length} opportunities for SC`);
 
   // Store in cache
-  await cacheScOpportunities(userId, snowflakeUserId, opportunities);
+  await cacheScOpportunities(userId, snowflakeUserId, opportunities, scope);
 
   return {
     opportunities,
@@ -93,30 +93,51 @@ async function fetchScOpportunitiesFromSnowflake(userEmail, scope = {}) {
   return { snowflakeUserId: snowflakeUserIds.join(','), opportunities };
 }
 
-async function cacheScOpportunities(userId, snowflakeUserId, opportunities) {
+async function cacheScOpportunities(userId, snowflakeUserId, opportunities, scope = {}) {
   const expiresAt = new Date(Date.now() + CACHE_TTL_HOURS * 60 * 60 * 1000);
 
+  // Persist only the scope fields worth reporting on the admin page, not the
+  // full scope object (which may carry incidental request fields).
+  const scopeToStore = {
+    arrThreshold: scope.arrThreshold ?? null,
+    closeDatePreset: scope.closeDatePreset ?? null,
+    closeDateFrom: scope.closeDateFrom ?? null,
+    closeDateTo: scope.closeDateTo ?? null,
+    scEmails: Array.isArray(scope.scEmails) ? scope.scEmails : [],
+  };
+
   const query = `
-    INSERT INTO sc_opportunities_cache (user_id, snowflake_user_id, opportunities_data, cached_at, expires_at)
-    VALUES ($1, $2, $3, NOW(), $4)
+    INSERT INTO sc_opportunities_cache (user_id, snowflake_user_id, opportunities_data, scope, cached_at, expires_at)
+    VALUES ($1, $2, $3, $4, NOW(), $5)
     ON CONFLICT (user_id)
     DO UPDATE SET
       snowflake_user_id = EXCLUDED.snowflake_user_id,
       opportunities_data = EXCLUDED.opportunities_data,
+      scope = EXCLUDED.scope,
       cached_at = EXCLUDED.cached_at,
       expires_at = EXCLUDED.expires_at
   `;
 
-  await pool.query(query, [userId, snowflakeUserId, JSON.stringify(opportunities), expiresAt]);
+  await pool.query(query, [userId, snowflakeUserId, JSON.stringify(opportunities), JSON.stringify(scopeToStore), expiresAt]);
 }
 
 /**
  * Most recent cache write across all users - i.e. when the app last synced
- * opportunity data from Snowflake.
+ * opportunity data from Snowflake - along with the scope that sync covered.
+ * @returns {Promise<{ lastCachedAt: Date | null, scope: object | null }>}
  */
 export async function getLastScCacheSync() {
-  const result = await pool.query('SELECT MAX(cached_at) AS last_cached_at FROM sc_opportunities_cache');
-  return result.rows[0]?.last_cached_at ?? null;
+  const result = await pool.query(
+    `SELECT cached_at, scope
+     FROM sc_opportunities_cache
+     ORDER BY cached_at DESC NULLS LAST
+     LIMIT 1`
+  );
+  const row = result.rows[0];
+  return {
+    lastCachedAt: row?.cached_at ?? null,
+    scope: row?.scope ?? null,
+  };
 }
 
 /**

@@ -1,4 +1,4 @@
-const MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
+export const MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
 
 /**
  * @typedef {Object} SummaryRequest

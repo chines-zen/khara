@@ -132,6 +132,13 @@ export async function initializeDatabase() {
       )
     `);
 
+    // Scope (ARR threshold / close-date preset / SE emails) used for the most
+    // recent sync, so the admin page can report what the latest successful query
+    // actually covered. Added via ALTER for DBs created before this column existed.
+    await client.query(`
+      ALTER TABLE sc_opportunities_cache ADD COLUMN IF NOT EXISTS scope JSONB
+    `);
+
     // Indexes for cache lookups
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_sc_cache_user_id ON sc_opportunities_cache(user_id)
@@ -300,4 +307,32 @@ export async function checkDatabaseHealth() {
       error: error.message,
     };
   }
+}
+
+/**
+ * Aggregate counts from the local PostgreSQL mirror tables:
+ *   - opportunities: distinct opportunity ids across all users' cached syncs
+ *     (opportunities_data is a JSONB array of { id, ... })
+ *   - dScores: unique dispassionate_reviews rows (one per review record)
+ *   - activities: unique activities rows (one per activity id)
+ *   - summaries: opportunity_summaries rows (one per opportunity, id is UNIQUE)
+ */
+export async function getPostgresStats() {
+  const [oppsResult, dScoresResult, activitiesResult, summariesResult] = await Promise.all([
+    pool.query(`
+      SELECT COUNT(DISTINCT elem->>'id') AS count
+      FROM sc_opportunities_cache,
+           jsonb_array_elements(opportunities_data) AS elem
+    `),
+    pool.query('SELECT COUNT(*) AS count FROM dispassionate_reviews'),
+    pool.query('SELECT COUNT(*) AS count FROM activities'),
+    pool.query('SELECT COUNT(*) AS count FROM opportunity_summaries'),
+  ]);
+
+  return {
+    totalOpportunities: Number(oppsResult.rows[0]?.count ?? 0),
+    totalDScores: Number(dScoresResult.rows[0]?.count ?? 0),
+    totalActivities: Number(activitiesResult.rows[0]?.count ?? 0),
+    totalSummaries: Number(summariesResult.rows[0]?.count ?? 0),
+  };
 }
