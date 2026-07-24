@@ -293,6 +293,17 @@ if (process.env.DEV_MODE === 'true') {
     }
 
     req.session.devEmailOverride = email;
+
+    // Persist to .env so future dev sessions start with this email already set
+    // (DEV_USER_EMAIL), skipping the capture dialog. Best-effort — a write
+    // failure shouldn't fail the request, since the session override above
+    // already makes the email effective for the current run.
+    try {
+      await setEnvVar('DEV_USER_EMAIL', email);
+    } catch (error) {
+      console.error('Failed to persist DEV_USER_EMAIL to .env:', error);
+    }
+
     req.session.save((err) => {
       if (err) {
         console.error('Failed to save dev session email:', err);
