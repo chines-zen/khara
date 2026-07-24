@@ -49,6 +49,7 @@ lerna-debug.log*
 *.temp
 .cache/
 discoveries/
+todo.md
 
 
 # Snowflake credentials (extra safety)
