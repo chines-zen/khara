@@ -204,7 +204,7 @@ function AdminPage() {
           {statsLoading ? (
             <div className="text-sm text-zd-teal/50">Loading statistics...</div>
           ) : stats ? (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-zd-bg/50 p-4 rounded">
                 <div className="text-sm text-zd-teal/60 mb-1">
                   Opportunities
@@ -223,6 +223,12 @@ function AdminPage() {
                 <div className="text-sm text-zd-teal/60 mb-1">Activities</div>
                 <div className="text-2xl font-bold">
                   {(stats.totalActivities ?? 0).toLocaleString()}
+                </div>
+              </div>
+              <div className="bg-zd-bg/50 p-4 rounded">
+                <div className="text-sm text-zd-teal/60 mb-1">Gong Calls</div>
+                <div className="text-2xl font-bold">
+                  {(stats.totalGongCalls ?? 0).toLocaleString()}
                 </div>
               </div>
               <div className="bg-zd-bg/50 p-4 rounded">

@@ -1,12 +1,12 @@
-import pg from 'pg';
+import pg from "pg";
 const { Pool } = pg;
 
 // PostgreSQL connection pool
 export const pool = new Pool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
+  host: process.env.DB_HOST || "localhost",
+  port: parseInt(process.env.DB_PORT || "5432"),
   database: process.env.DB_NAME,
   max: 20, // Maximum pool size
   idleTimeoutMillis: 30000,
@@ -14,12 +14,12 @@ export const pool = new Pool({
 });
 
 // Test connection on startup
-pool.on('connect', () => {
-  console.log('✅ PostgreSQL pool connected');
+pool.on("connect", () => {
+  console.log("✅ PostgreSQL pool connected");
 });
 
-pool.on('error', (err) => {
-  console.error('❌ PostgreSQL pool error:', err);
+pool.on("error", (err) => {
+  console.error("❌ PostgreSQL pool error:", err);
 });
 
 /**
@@ -30,9 +30,9 @@ export async function initializeDatabase() {
   const client = await pool.connect();
 
   try {
-    console.log('📦 Initializing database tables...');
+    console.log("📦 Initializing database tables...");
 
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     // Users table - store SSO user info
     await client.query(`
@@ -294,12 +294,57 @@ export async function initializeDatabase() {
       )
     `);
 
-    await client.query('COMMIT');
+    // Gong call spotlight mirror. Calls are shared across users, and a single
+    // call can be linked to multiple opportunities, so the opportunity/call
+    // relationship is the natural composite key.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gong_calls (
+        opportunity_id VARCHAR(255) NOT NULL,
+        conversation_key VARCHAR(255) NOT NULL,
+        call_id VARCHAR(255) NOT NULL,
+        call_date DATE NOT NULL,
+        title TEXT NOT NULL,
+        brief TEXT NOT NULL,
+        next_steps TEXT NOT NULL,
+        key_points JSONB,
+        attendees JSONB NOT NULL DEFAULT '[]'::jsonb,
+        gong_url TEXT NOT NULL,
+        synced_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (opportunity_id, conversation_key)
+      )
+    `);
 
-    console.log('✅ Database tables initialized successfully');
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_gong_calls_opportunity_date
+      ON gong_calls(opportunity_id, call_date DESC)
+    `);
+
+    await client.query(`
+      ALTER TABLE gong_calls
+      ADD COLUMN IF NOT EXISTS attendees JSONB NOT NULL DEFAULT '[]'::jsonb
+    `);
+
+    // Per-opportunity TTL metadata. Empty results are also marked synced so
+    // opportunities without calls are not queried on every detail open.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gong_sync_meta (
+        opportunity_id VARCHAR(255) PRIMARY KEY,
+        last_synced_at TIMESTAMP NOT NULL,
+        cache_version INTEGER NOT NULL DEFAULT 3
+      )
+    `);
+
+    await client.query(`
+      ALTER TABLE gong_sync_meta
+      ADD COLUMN IF NOT EXISTS cache_version INTEGER NOT NULL DEFAULT 1
+    `);
+
+    await client.query("COMMIT");
+
+    console.log("✅ Database tables initialized successfully");
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ Database initialization failed:', error);
+    await client.query("ROLLBACK");
+    console.error("❌ Database initialization failed:", error);
     throw error;
   } finally {
     client.release();
@@ -311,14 +356,14 @@ export async function initializeDatabase() {
  */
 export async function checkDatabaseHealth() {
   try {
-    const result = await pool.query('SELECT NOW() as current_time');
+    const result = await pool.query("SELECT NOW() as current_time");
     return {
-      status: 'connected',
+      status: "connected",
       timestamp: result.rows[0].current_time,
     };
   } catch (error) {
     return {
-      status: 'disconnected',
+      status: "disconnected",
       error: error.message,
     };
   }
@@ -330,24 +375,35 @@ export async function checkDatabaseHealth() {
  *     (opportunities_data is a JSONB array of { id, ... })
  *   - dScores: unique dispassionate_reviews rows (one per review record)
  *   - activities: unique activities rows (one per activity id)
+ *   - gongCalls: unique gong_calls rows (one per opportunity/call pair)
  *   - summaries: opportunity_summaries rows (one per opportunity, id is UNIQUE)
  */
 export async function getPostgresStats() {
-  const [oppsResult, dScoresResult, activitiesResult, summariesResult] = await Promise.all([
-    pool.query(`
+  const [
+    oppsResult,
+    dScoresResult,
+    activitiesResult,
+    gongCallsResult,
+    summariesResult,
+  ] = await Promise.all([
+      pool.query(`
       SELECT COUNT(DISTINCT elem->>'id') AS count
       FROM sc_opportunities_cache,
            jsonb_array_elements(opportunities_data) AS elem
     `),
-    pool.query('SELECT COUNT(*) AS count FROM dispassionate_reviews'),
-    pool.query('SELECT COUNT(*) AS count FROM activities'),
-    pool.query('SELECT COUNT(*) AS count FROM opportunity_summaries'),
-  ]);
+      pool.query("SELECT COUNT(*) AS count FROM dispassionate_reviews"),
+      pool.query("SELECT COUNT(*) AS count FROM activities"),
+      pool.query(
+        "SELECT COUNT(DISTINCT (opportunity_id, conversation_key)) AS count FROM gong_calls",
+      ),
+      pool.query("SELECT COUNT(*) AS count FROM opportunity_summaries"),
+    ]);
 
   return {
     totalOpportunities: Number(oppsResult.rows[0]?.count ?? 0),
     totalDScores: Number(dScoresResult.rows[0]?.count ?? 0),
     totalActivities: Number(activitiesResult.rows[0]?.count ?? 0),
+    totalGongCalls: Number(gongCallsResult.rows[0]?.count ?? 0),
     totalSummaries: Number(summariesResult.rows[0]?.count ?? 0),
   };
 }

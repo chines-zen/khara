@@ -1,37 +1,59 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import cookieParser from 'cookie-parser';
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import cookieParser from "cookie-parser";
 
 // Snowflake imports
-import { connectToSnowflake, executeQuery } from './snowflake-connection.js';
+import { connectToSnowflake, executeQuery } from "./snowflake-connection.js";
 import {
   buildOpportunitiesQuery,
   buildOwnersQuery,
   buildCloseMonthsQuery,
   buildScOpportunitiesQuery,
-} from './snowflake-queries.js';
+} from "./snowflake-queries.js";
 
 // Database and auth
-import { initializeDatabase, checkDatabaseHealth, getPostgresStats, pool } from './db/index.js';
-import { authenticateWithPomerium } from './middleware/auth.js';
-import { createSessionMiddleware } from './middleware/session.js';
+import {
+  initializeDatabase,
+  checkDatabaseHealth,
+  getPostgresStats,
+  pool,
+} from "./db/index.js";
+import { authenticateWithPomerium } from "./middleware/auth.js";
+import { createSessionMiddleware } from "./middleware/session.js";
 
 // Services
-import { getCachedSummary, getSummaryIfCached, cleanupExpiredSummaries } from './services/summary-cache.js';
-import { getHiddenOpportunities, hideOpportunity, unhideOpportunity } from './services/hidden-opportunities.js';
-import { getScOpportunities, invalidateScCache, cleanupExpiredScCache, getLastScCacheSync } from './services/sc-opportunities-cache.js';
-import { getActivities, invalidateActivitiesCache } from './services/activities-cache.js';
-import { getDispassionateReviewsForOpportunity } from './services/dispassionate-reviews-cache.js';
-import { resolveScUserId } from './services/sc-lookup.js';
-import { getEffectiveOppScope } from './services/opp-scope.js';
-import { setEnvVar } from './services/env-writer.js';
-import { validateBedrockToken, MODEL_ID } from './src/lib/claude-ai.server.js';
+import {
+  getCachedSummary,
+  getSummaryIfCached,
+  cleanupExpiredSummaries,
+} from "./services/summary-cache.js";
+import {
+  getHiddenOpportunities,
+  hideOpportunity,
+  unhideOpportunity,
+} from "./services/hidden-opportunities.js";
+import {
+  getScOpportunities,
+  invalidateScCache,
+  cleanupExpiredScCache,
+  getLastScCacheSync,
+} from "./services/sc-opportunities-cache.js";
+import {
+  getActivities,
+  invalidateActivitiesCache,
+} from "./services/activities-cache.js";
+import { getDispassionateReviewsForOpportunity } from "./services/dispassionate-reviews-cache.js";
+import { getGongCallsForOpportunity } from "./services/gong-calls-cache.js";
+import { resolveScUserId } from "./services/sc-lookup.js";
+import { getEffectiveOppScope } from "./services/opp-scope.js";
+import { setEnvVar } from "./services/env-writer.js";
+import { validateBedrockToken, MODEL_ID } from "./src/lib/claude-ai.server.js";
 
 // Routes
-import preferencesRouter from './routes/preferences.js';
+import preferencesRouter from "./routes/preferences.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,15 +73,14 @@ const SNOWFLAKE_RETRY_INTERVAL_MS = 30_000;
 initializeDatabase()
   .then(() => {
     databaseConnected = true;
-    console.log('✅ Database initialized');
+    console.log("✅ Database initialized");
 
     // Clean up expired summaries on startup
-    return cleanupExpiredSummaries()
-      .then(() => cleanupExpiredScCache());
+    return cleanupExpiredSummaries().then(() => cleanupExpiredScCache());
   })
   .catch((err) => {
-    console.error('❌ Failed to initialize database:', err.message);
-    console.error('   The app will run but database features will fail.');
+    console.error("❌ Failed to initialize database:", err.message);
+    console.error("   The app will run but database features will fail.");
   });
 
 // Connect to Snowflake on startup, retrying on failure so a missed SSO
@@ -70,16 +91,20 @@ initializeDatabase()
 function connectToSnowflakeWithRetry() {
   connectToSnowflake()
     .then(() => {
-      console.log('✅ Snowflake connection established');
+      console.log("✅ Snowflake connection established");
     })
     .catch((err) => {
-      console.error('❌ Failed to connect to Snowflake:', err.message);
-      console.error(`   Retrying in ${SNOWFLAKE_RETRY_INTERVAL_MS / 1000}s. API calls will fail until connected.`);
+      console.error("❌ Failed to connect to Snowflake:", err.message);
+      console.error(
+        `   Retrying in ${SNOWFLAKE_RETRY_INTERVAL_MS / 1000}s. API calls will fail until connected.`,
+      );
       setTimeout(connectToSnowflakeWithRetry, SNOWFLAKE_RETRY_INTERVAL_MS);
     });
 }
 
-const SNOWFLAKE_SERVICE_ACCOUNT_MODE = Boolean(process.env.SNOWFLAKE_USERNAME && process.env.SNOWFLAKE_PASSWORD);
+const SNOWFLAKE_SERVICE_ACCOUNT_MODE = Boolean(
+  process.env.SNOWFLAKE_USERNAME && process.env.SNOWFLAKE_PASSWORD,
+);
 
 if (SNOWFLAKE_SERVICE_ACCOUNT_MODE) {
   connectToSnowflakeWithRetry();
@@ -90,10 +115,12 @@ if (SNOWFLAKE_SERVICE_ACCOUNT_MODE) {
 // ============================================================================
 
 // 1. CORS
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true, // Allow cookies for session
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "*",
+    credentials: true, // Allow cookies for session
+  }),
+);
 
 // 2. Body parsing
 app.use(express.json());
@@ -129,30 +156,32 @@ function parseMostRecentDateFromNotes(notes) {
   if (matches.length === 0) return null;
 
   // Parse all dates and find the most recent
-  const dates = matches.map(match => {
-    let [_, month, day, year] = match;
+  const dates = matches
+    .map((match) => {
+      let [_, month, day, year] = match;
 
-    // Convert 2-digit year to 4-digit (26 -> 2026)
-    if (year.length === 2) {
-      year = '20' + year;
-    }
+      // Convert 2-digit year to 4-digit (26 -> 2026)
+      if (year.length === 2) {
+        year = "20" + year;
+      }
 
-    // Create date object (month is 0-indexed in JS)
-    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-  }).filter(d => !isNaN(d.getTime())); // Filter out invalid dates
+      // Create date object (month is 0-indexed in JS)
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    })
+    .filter((d) => !isNaN(d.getTime())); // Filter out invalid dates
 
   if (dates.length === 0) return null;
 
   // Return most recent date in YYYY-MM-DD format
   const mostRecent = new Date(Math.max(...dates));
-  return mostRecent.toISOString().split('T')[0];
+  return mostRecent.toISOString().split("T")[0];
 }
 
 /**
  * Transform Snowflake row to match frontend format
  */
 function normalizeStage(stage) {
-  if (stage === '08 - Closed') return 'Won';
+  if (stage === "08 - Closed") return "Won";
   return stage;
 }
 
@@ -160,30 +189,36 @@ function transformOpportunity(row) {
   return {
     id: row.ID,
     name: row.NAME,
-    account: row.ACCOUNT || 'Unknown Account',
-    stage: normalizeStage(row.STAGE) || 'Unknown',
+    account: row.ACCOUNT || "Unknown Account",
+    stage: normalizeStage(row.STAGE) || "Unknown",
     type: row.TYPE,
     territory: row.TERRITORY,
     amount: row.AMOUNT || 0,
-    closeDate: row.CLOSE_DATE ? row.CLOSE_DATE.toISOString().split('T')[0] : null,
-    createdDate: row.CREATED_DATE ? row.CREATED_DATE.toISOString().split('T')[0] : null,
-    owner: row.OWNER || 'Not Available',
-    scNotes: row.SC_NOTES || '',
-    nextSteps: row.NEXT_STEPS || '',
-    managerNotes: row.MANAGER_NOTES || '',
-    scManagerNotes: row.SC_MANAGER_NOTES || '',
-    scEngagementType: row.SC_ENGAGEMENT_TYPE || '',
-    productSpecialistNotes: row.PRODUCT_SPECIALIST_NOTES || '',
-    nameOfSc: row.NAME_OF_SC || 'Not Assigned',
+    closeDate: row.CLOSE_DATE
+      ? row.CLOSE_DATE.toISOString().split("T")[0]
+      : null,
+    createdDate: row.CREATED_DATE
+      ? row.CREATED_DATE.toISOString().split("T")[0]
+      : null,
+    owner: row.OWNER || "Not Available",
+    scNotes: row.SC_NOTES || "",
+    nextSteps: row.NEXT_STEPS || "",
+    managerNotes: row.MANAGER_NOTES || "",
+    scManagerNotes: row.SC_MANAGER_NOTES || "",
+    scEngagementType: row.SC_ENGAGEMENT_TYPE || "",
+    productSpecialistNotes: row.PRODUCT_SPECIALIST_NOTES || "",
+    nameOfSc: row.NAME_OF_SC || "Not Assigned",
     scUserId: row.SC_USER_ID,
     dScore: row.D_SCORE || 0,
     lastUpdateDate: parseMostRecentDateFromNotes(row.SC_NOTES), // Parse from SC Notes for "Days Since Update"
     latestDScoreReviewDate: row.LATEST_DSCORE_REVIEW_DATE
-      ? row.LATEST_DSCORE_REVIEW_DATE.toISOString().split('T')[0]
+      ? row.LATEST_DSCORE_REVIEW_DATE.toISOString().split("T")[0]
       : null,
     dScoreDelta: 0, // TODO: Calculate from historical snapshots
     opportunityNumber: row.OPPORTUNITY_NUMBER,
-    snapshotDate: row.SNAPSHOT_DATE ? row.SNAPSHOT_DATE.toISOString().split('T')[0] : null,
+    snapshotDate: row.SNAPSHOT_DATE
+      ? row.SNAPSHOT_DATE.toISOString().split("T")[0]
+      : null,
   };
 }
 
@@ -194,18 +229,18 @@ function transformOpportunity(row) {
 // Health check - app freshness (when the app last synced opportunity data from
 // Snowflake) plus the scope that sync covered, and feature-flag hints the
 // frontend needs. PostgreSQL status and mirror-table counts live in /api/stats.
-app.get('/api/health', async (req, res) => {
+app.get("/api/health", async (req, res) => {
   const { lastCachedAt, scope } = await getLastScCacheSync().catch((error) => {
-    console.error('Error fetching last SC cache sync:', error);
+    console.error("Error fetching last SC cache sync:", error);
     return { lastCachedAt: null, scope: null };
   });
 
   res.json({
     appUpdatedAt: lastCachedAt,
     lastSyncScope: scope,
-    devMode: process.env.DEV_MODE === 'true',
-    activitiesEnabled: process.env.ACTIVITIES_ENABLED === 'true',
-    doNotClickActive: process.env.DO_NOT_CLICK_ACTIVE === 'true',
+    devMode: process.env.DEV_MODE === "true",
+    activitiesEnabled: process.env.ACTIVITIES_ENABLED === "true",
+    doNotClickActive: process.env.DO_NOT_CLICK_ACTIVE === "true",
     claudeTokenConfigured: Boolean(process.env.AWS_BEARER_TOKEN_BEDROCK),
   });
 });
@@ -219,7 +254,7 @@ app.get('/api/health', async (req, res) => {
  * Get current user info from session
  * Protected by Pomerium (must have valid headers)
  */
-app.get('/api/me', authenticateWithPomerium, (req, res) => {
+app.get("/api/me", authenticateWithPomerium, (req, res) => {
   res.json({
     id: req.user.id,
     email: req.user.email,
@@ -235,23 +270,23 @@ app.get('/api/me', authenticateWithPomerium, (req, res) => {
  * POST /api/auth/logout
  * Clear session (does not log out of Pomerium SSO)
  */
-app.post('/api/auth/logout', (req, res) => {
+app.post("/api/auth/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {
-      console.error('Session destruction error:', err);
-      return res.status(500).json({ error: 'Failed to logout' });
+      console.error("Session destruction error:", err);
+      return res.status(500).json({ error: "Failed to logout" });
     }
-    res.json({ success: true, message: 'Session cleared' });
+    res.json({ success: true, message: "Session cleared" });
   });
 });
 
 // DEV_MODE only: let a developer switch which email authenticateWithPomerium's
 // bypass uses, so SC-scoped filtering can be exercised without real Pomerium headers.
-if (process.env.DEV_MODE === 'true') {
-  app.post('/api/dev/session-email', async (req, res) => {
+if (process.env.DEV_MODE === "true") {
+  app.post("/api/dev/session-email", async (req, res) => {
     const { email } = req.body;
 
-    if (!email || typeof email !== 'string') {
+    if (!email || typeof email !== "string") {
       return res.status(400).json({ error: 'Missing "email" in request body' });
     }
 
@@ -261,9 +296,12 @@ if (process.env.DEV_MODE === 'true') {
     try {
       await connectToSnowflake(email);
     } catch (error) {
-      console.error('Failed to connect to Snowflake for dev session email:', error);
+      console.error(
+        "Failed to connect to Snowflake for dev session email:",
+        error,
+      );
       return res.status(502).json({
-        error: 'Failed to authenticate with Snowflake',
+        error: "Failed to authenticate with Snowflake",
         details: error.message,
       });
     }
@@ -275,15 +313,17 @@ if (process.env.DEV_MODE === 'true') {
     // failure shouldn't fail the request, since the session override above
     // already makes the email effective for the current run.
     try {
-      await setEnvVar('DEV_USER_EMAIL', email);
+      await setEnvVar("DEV_USER_EMAIL", email);
     } catch (error) {
-      console.error('Failed to persist DEV_USER_EMAIL to .env:', error);
+      console.error("Failed to persist DEV_USER_EMAIL to .env:", error);
     }
 
     req.session.save((err) => {
       if (err) {
-        console.error('Failed to save dev session email:', err);
-        return res.status(500).json({ error: 'Failed to save dev session email' });
+        console.error("Failed to save dev session email:", err);
+        return res
+          .status(500)
+          .json({ error: "Failed to save dev session email" });
       }
       res.json({ success: true, email });
     });
@@ -295,13 +335,15 @@ if (process.env.DEV_MODE === 'true') {
 // ============================================================================
 
 // User preferences routes
-app.use('/api/user-preferences', authenticateWithPomerium, preferencesRouter);
+app.use("/api/user-preferences", authenticateWithPomerium, preferencesRouter);
 
 // POST /api/opportunities - Get filtered opportunities, scoped to the logged-in SC
-app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
+app.post("/api/opportunities", authenticateWithPomerium, async (req, res) => {
   try {
     if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
+      return res
+        .status(503)
+        .json({ error: "Database connection not established" });
     }
 
     const scEmail = req.user.email;
@@ -309,7 +351,7 @@ app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
 
     if (!scUser) {
       return res.status(404).json({
-        error: 'SC user not found',
+        error: "SC user not found",
         details: `No Snowflake user record found for email: ${scEmail}. You may not be registered as an SC in Salesforce.`,
       });
     }
@@ -326,7 +368,7 @@ app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
     };
 
     const sql = buildOpportunitiesQuery(filtersWithScope);
-    console.log('Executing query...');
+    console.log("Executing query...");
 
     const rows = await executeQuery(sql, undefined, scEmail);
     console.log(`Found ${rows.length} opportunities`);
@@ -334,98 +376,117 @@ app.post('/api/opportunities', authenticateWithPomerium, async (req, res) => {
     const opportunities = rows.map(transformOpportunity);
     res.json(opportunities);
   } catch (error) {
-    console.error('Error fetching opportunities:', error);
-    res.status(500).json({ error: 'Failed to fetch opportunities', details: error.message });
+    console.error("Error fetching opportunities:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch opportunities", details: error.message });
   }
 });
 
 // GET /api/opportunities/my-sc-opps - Get opportunities where user is SC (scoped by stage + ARR/close-date, 12hr cache)
-app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, res) => {
-  console.log('📥 GET /api/opportunities/my-sc-opps - Request received');
-  try {
-    if (!databaseConnected) {
-      console.log('❌ Database not connected');
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.get(
+  "/api/opportunities/my-sc-opps",
+  authenticateWithPomerium,
+  async (req, res) => {
+    console.log("📥 GET /api/opportunities/my-sc-opps - Request received");
+    try {
+      if (!databaseConnected) {
+        console.log("❌ Database not connected");
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    const userId = req.user.id;
-    const scEmail = req.user.email;
-    console.log(`👤 User: ${userId} (SC: ${scEmail})`);
+      const userId = req.user.id;
+      const scEmail = req.user.email;
+      console.log(`👤 User: ${userId} (SC: ${scEmail})`);
 
-    const scope = await getEffectiveOppScope(userId);
-    // Sales Engineers scoping is manager-only — strip it for anyone else even
-    // if a stale preference value has it set (e.g. is_manager was revoked).
-    if (!req.user.is_manager) {
-      scope.scEmails = [];
-      scope.scUserIds = [];
-    }
+      const scope = await getEffectiveOppScope(userId);
+      // Sales Engineers scoping is manager-only — strip it for anyone else even
+      // if a stale preference value has it set (e.g. is_manager was revoked).
+      if (!req.user.is_manager) {
+        scope.scEmails = [];
+        scope.scUserIds = [];
+      }
 
-    // The user's own USER_ID, cached at login (see middleware/auth.js). Lets the
-    // sync below skip the USER_HISTORY identity lookup on a cache miss.
-    scope.sfdcUserId = req.user.sfdc_user_id ?? null;
+      // The user's own USER_ID, cached at login (see middleware/auth.js). Lets the
+      // sync below skip the USER_HISTORY identity lookup on a cache miss.
+      scope.sfdcUserId = req.user.sfdc_user_id ?? null;
 
-    // Managers rarely own opportunities under their own name, so a sync scoped
-    // to their own SC identity would be empty/meaningless. Require them to
-    // configure the SEs they manage before the first data fetch runs.
-    if (req.user.is_manager && scope.scEmails.length === 0) {
-      return res.status(428).json({
-        error: 'SE emails required',
-        code: 'SE_EMAILS_REQUIRED',
-        details: 'Add the Sales Engineers you manage in Settings before your first data sync.',
+      // Managers rarely own opportunities under their own name, so a sync scoped
+      // to their own SC identity would be empty/meaningless. Require them to
+      // configure the SEs they manage before the first data fetch runs.
+      if (req.user.is_manager && scope.scEmails.length === 0) {
+        return res.status(428).json({
+          error: "SE emails required",
+          code: "SE_EMAILS_REQUIRED",
+          details:
+            "Add the Sales Engineers you manage in Settings before your first data sync.",
+        });
+      }
+
+      // Get opportunities (with caching)
+      const result = await getScOpportunities(userId, scEmail, scope);
+
+      res.json({
+        opportunities: result.opportunities,
+        metadata: {
+          cached: result.cached,
+          cachedAt: result.cachedAt,
+          expiresAt: result.expiresAt,
+          count: result.opportunities.length,
+        },
       });
-    }
+    } catch (error) {
+      console.error("Error fetching SC opportunities:", error);
 
-    // Get opportunities (with caching)
-    const result = await getScOpportunities(userId, scEmail, scope);
+      // Special handling for "no Snowflake user found" case
+      if (error.message.includes("No Snowflake user found")) {
+        return res.status(404).json({
+          error: "SC user not found",
+          details: error.message,
+        });
+      }
 
-    res.json({
-      opportunities: result.opportunities,
-      metadata: {
-        cached: result.cached,
-        cachedAt: result.cachedAt,
-        expiresAt: result.expiresAt,
-        count: result.opportunities.length,
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching SC opportunities:', error);
-
-    // Special handling for "no Snowflake user found" case
-    if (error.message.includes('No Snowflake user found')) {
-      return res.status(404).json({
-        error: 'SC user not found',
+      res.status(500).json({
+        error: "Failed to fetch SC opportunities",
         details: error.message,
       });
     }
-
-    res.status(500).json({
-      error: 'Failed to fetch SC opportunities',
-      details: error.message,
-    });
-  }
-});
+  },
+);
 
 // DELETE /api/opportunities/my-sc-opps/cache - Force refresh cache
-app.delete('/api/opportunities/my-sc-opps/cache', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.delete(
+  "/api/opportunities/my-sc-opps/cache",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    await invalidateScCache(req.user.id);
-    res.json({ success: true, message: 'SC opportunities cache cleared' });
-  } catch (error) {
-    console.error('Error clearing SC cache:', error);
-    res.status(500).json({ error: 'Failed to clear cache', details: error.message });
-  }
-});
+      await invalidateScCache(req.user.id);
+      res.json({ success: true, message: "SC opportunities cache cleared" });
+    } catch (error) {
+      console.error("Error clearing SC cache:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to clear cache", details: error.message });
+    }
+  },
+);
 
 // GET /api/activities - Get activities for the current SE (or their team, if
 // a manager with SE scoping configured), scoped to the current fiscal year
-app.get('/api/activities', authenticateWithPomerium, async (req, res) => {
+app.get("/api/activities", authenticateWithPomerium, async (req, res) => {
   try {
     if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
+      return res
+        .status(503)
+        .json({ error: "Database connection not established" });
     }
 
     const scope = await getEffectiveOppScope(req.user.id);
@@ -436,7 +497,7 @@ app.get('/api/activities', authenticateWithPomerium, async (req, res) => {
 
     // ?force=true (NavBar "Refresh Data") bypasses the TTL gate and resyncs now -
     // incrementally for SEs already synced, full-backfill for newly-scoped ones.
-    const force = req.query.force === 'true';
+    const force = req.query.force === "true";
 
     const result = await getActivities(req.user.email, {
       scEmails,
@@ -454,36 +515,44 @@ app.get('/api/activities', authenticateWithPomerium, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching activities:', error);
+    console.error("Error fetching activities:", error);
 
-    if (error.message.includes('No Snowflake user found')) {
+    if (error.message.includes("No Snowflake user found")) {
       return res.status(404).json({
-        error: 'SE user not found',
+        error: "SE user not found",
         details: error.message,
       });
     }
 
     res.status(500).json({
-      error: 'Failed to fetch activities',
+      error: "Failed to fetch activities",
       details: error.message,
     });
   }
 });
 
 // DELETE /api/activities/cache - Force refresh activities cache
-app.delete('/api/activities/cache', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.delete(
+  "/api/activities/cache",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    await invalidateActivitiesCache();
-    res.json({ success: true, message: 'Activities cache cleared' });
-  } catch (error) {
-    console.error('Error clearing activities cache:', error);
-    res.status(500).json({ error: 'Failed to clear cache', details: error.message });
-  }
-});
+      await invalidateActivitiesCache();
+      res.json({ success: true, message: "Activities cache cleared" });
+    } catch (error) {
+      console.error("Error clearing activities cache:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to clear cache", details: error.message });
+    }
+  },
+);
 
 // POST /api/config/claude-token - Validate a Claude/Bedrock bearer token against
 // the AI gateway, then save it to the local .env file so AI summaries can be
@@ -492,51 +561,63 @@ app.delete('/api/activities/cache', authenticateWithPomerium, async (req, res) =
 // a fresh one; a gateway/server-side error leaves any existing token untouched
 // and tells the user to try again later. Local-dev convenience only; in a real
 // deployment the token comes from the environment (no writable .env).
-app.post('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
-  try {
-    const { token } = req.body;
+app.post(
+  "/api/config/claude-token",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      const { token } = req.body;
 
-    if (!token || typeof token !== 'string' || !token.trim()) {
-      return res.status(400).json({ error: 'Missing "token" in request body' });
+      if (!token || typeof token !== "string" || !token.trim()) {
+        return res
+          .status(400)
+          .json({ error: 'Missing "token" in request body' });
+      }
+
+      const trimmed = token.trim();
+      const result = await validateBedrockToken(trimmed);
+
+      if (result.ok) {
+        await setEnvVar("AWS_BEARER_TOKEN_BEDROCK", trimmed);
+        return res.json({ success: true });
+      }
+
+      // The token was rejected — clear any stored token so the UI reverts to the
+      // prompt and the user can enter a different one.
+      if (result.reason === "auth") {
+        await setEnvVar("AWS_BEARER_TOKEN_BEDROCK", "");
+        return res
+          .status(400)
+          .json({ error: result.message, reason: result.reason });
+      }
+
+      // Gateway/network/rate-limit/config problem: don't persist, but this isn't
+      // necessarily the token's fault, so leave any existing token in place.
+      return res
+        .status(502)
+        .json({ error: result.message, reason: result.reason });
+    } catch (error) {
+      console.error("Error saving Claude token:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to save token", details: error.message });
     }
-
-    const trimmed = token.trim();
-    const result = await validateBedrockToken(trimmed);
-
-    if (result.ok) {
-      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', trimmed);
-      return res.json({ success: true });
-    }
-
-    // The token was rejected — clear any stored token so the UI reverts to the
-    // prompt and the user can enter a different one.
-    if (result.reason === 'auth') {
-      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
-      return res.status(400).json({ error: result.message, reason: result.reason });
-    }
-
-    // Gateway/network/rate-limit/config problem: don't persist, but this isn't
-    // necessarily the token's fault, so leave any existing token in place.
-    return res.status(502).json({ error: result.message, reason: result.reason });
-  } catch (error) {
-    console.error('Error saving Claude token:', error);
-    res.status(500).json({ error: 'Failed to save token', details: error.message });
-  }
-});
+  },
+);
 
 // DEV_MODE only: the admin page's AI Backend card. It exposes a masked token
 // preview and a Clear Token action that writes to the local .env — neither is
 // meaningful in a real deployment (no writable .env; the token comes from the
 // environment), so these routes aren't even registered there and the card is
 // hidden client-side via the health endpoint's devMode flag.
-if (process.env.DEV_MODE === 'true') {
+if (process.env.DEV_MODE === "true") {
   // GET /api/config/ai-backend - which model summaries run against and a masked
   // preview of the configured bearer token (first 6 chars + '*****'), never the
   // full secret.
-  app.get('/api/config/ai-backend', authenticateWithPomerium, (req, res) => {
-    const token = process.env.AWS_BEARER_TOKEN_BEDROCK || '';
+  app.get("/api/config/ai-backend", authenticateWithPomerium, (req, res) => {
+    const token = process.env.AWS_BEARER_TOKEN_BEDROCK || "";
     res.json({
-      provider: 'Claude (AWS Bedrock)',
+      provider: "Claude (AWS Bedrock)",
       model: MODEL_ID,
       tokenConfigured: Boolean(token),
       tokenPreview: token ? `${token.slice(0, 6)}*****` : null,
@@ -545,138 +626,217 @@ if (process.env.DEV_MODE === 'true') {
 
   // DELETE /api/config/claude-token - clear the stored Bedrock bearer token from
   // the local .env (same local-dev caveats as the POST above).
-  app.delete('/api/config/claude-token', authenticateWithPomerium, async (req, res) => {
-    try {
-      await setEnvVar('AWS_BEARER_TOKEN_BEDROCK', '');
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error clearing Claude token:', error);
-      res.status(500).json({ error: 'Failed to clear token', details: error.message });
-    }
-  });
+  app.delete(
+    "/api/config/claude-token",
+    authenticateWithPomerium,
+    async (req, res) => {
+      try {
+        await setEnvVar("AWS_BEARER_TOKEN_BEDROCK", "");
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Error clearing Claude token:", error);
+        res
+          .status(500)
+          .json({ error: "Failed to clear token", details: error.message });
+      }
+    },
+  );
 }
 
 // GET /api/opportunities/:id/summary/cached - Look up a cached summary without
 // generating one on a miss. Used to populate the UI when an opportunity is
 // opened, so switching between opps never triggers an AI call.
-app.get('/api/opportunities/:id/summary/cached', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.get(
+  "/api/opportunities/:id/summary/cached",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    const result = await getSummaryIfCached(req.params.id);
-    res.json(result); // null if no summary has been generated yet
-  } catch (error) {
-    console.error('Error fetching cached summary:', error);
-    res.status(500).json({ error: 'Failed to fetch cached summary', details: error.message });
-  }
-});
+      const result = await getSummaryIfCached(req.params.id);
+      res.json(result); // null if no summary has been generated yet
+    } catch (error) {
+      console.error("Error fetching cached summary:", error);
+      res
+        .status(500)
+        .json({
+          error: "Failed to fetch cached summary",
+          details: error.message,
+        });
+    }
+  },
+);
 
 // GET /api/opportunities/:id/dispassionate-reviews - D-Score review history for
 // one opp, syncing from Snowflake on a cache miss (24h per-opp TTL).
-app.get('/api/opportunities/:id/dispassionate-reviews', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.get(
+  "/api/opportunities/:id/dispassionate-reviews",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    const result = await getDispassionateReviewsForOpportunity(req.params.id, req.user.email);
-    res.json({
-      reviews: result.reviews,
-      metadata: {
-        cached: result.cached,
-        cachedAt: result.cachedAt,
-        count: result.reviews.length,
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching dispassionate reviews:', error);
-    res.status(500).json({ error: 'Failed to fetch dispassionate reviews', details: error.message });
-  }
-});
+      const result = await getDispassionateReviewsForOpportunity(
+        req.params.id,
+        req.user.email,
+      );
+      res.json({
+        reviews: result.reviews,
+        metadata: {
+          cached: result.cached,
+          cachedAt: result.cachedAt,
+          count: result.reviews.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching dispassionate reviews:", error);
+      res
+        .status(500)
+        .json({
+          error: "Failed to fetch dispassionate reviews",
+          details: error.message,
+        });
+    }
+  },
+);
+
+// GET /api/opportunities/:id/gong-calls - recent Gong spotlight calls for one
+// opportunity, synced into the shared local mirror with a 24h TTL.
+app.get(
+  "/api/opportunities/:id/gong-calls",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
+
+      const result = await getGongCallsForOpportunity(
+        req.params.id,
+        req.user.email,
+      );
+      res.json({
+        calls: result.calls,
+        metadata: {
+          cached: result.cached,
+          cachedAt: result.cachedAt,
+          count: result.calls.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching Gong calls:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to fetch Gong calls", details: error.message });
+    }
+  },
+);
 
 // GET /api/opportunities/:id/summary - Generate or retrieve cached AI summary
 // Query param: ?regenerate=true to force regenerate
-app.get('/api/opportunities/:id/summary', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
+app.get(
+  "/api/opportunities/:id/summary",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
+
+      const { id } = req.params;
+      const forceRegenerate = req.query.regenerate === "true";
+
+      // Fetch opportunity data from Snowflake
+      const sql = buildOpportunitiesQuery({
+        opportunityIds: [id],
+      });
+
+      const rows = await executeQuery(sql, undefined, req.user.email);
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Opportunity not found" });
+      }
+
+      const oppData = transformOpportunity(rows[0]);
+
+      // Get cached summary or generate new one (force regenerate if requested)
+      const result = await getCachedSummary(
+        id,
+        {
+          opportunityName: oppData.name,
+          account: oppData.account,
+          stage: oppData.stage,
+          amount: oppData.amount,
+          closeDate: oppData.closeDate,
+          owner: oppData.owner,
+          scNotes: oppData.scNotes || "No SC notes",
+          nextSteps: oppData.nextSteps || "No next steps documented",
+          managerNotes: oppData.managerNotes || "No manager notes",
+          scManagerNotes: oppData.scManagerNotes || "No SC manager notes",
+          productSpecialistNotes:
+            oppData.productSpecialistNotes || "No product specialist notes",
+          dScore: oppData.dScore,
+        },
+        forceRegenerate,
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error generating summary:", error);
+      res.status(500).json({
+        error: "Failed to generate summary",
+        details: error.message,
+      });
     }
-
-    const { id } = req.params;
-    const forceRegenerate = req.query.regenerate === 'true';
-
-    // Fetch opportunity data from Snowflake
-    const sql = buildOpportunitiesQuery({
-      opportunityIds: [id]
-    });
-
-    const rows = await executeQuery(sql, undefined, req.user.email);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Opportunity not found' });
-    }
-
-    const oppData = transformOpportunity(rows[0]);
-
-    // Get cached summary or generate new one (force regenerate if requested)
-    const result = await getCachedSummary(id, {
-      opportunityName: oppData.name,
-      account: oppData.account,
-      stage: oppData.stage,
-      amount: oppData.amount,
-      closeDate: oppData.closeDate,
-      owner: oppData.owner,
-      scNotes: oppData.scNotes || 'No SC notes',
-      nextSteps: oppData.nextSteps || 'No next steps documented',
-      managerNotes: oppData.managerNotes || 'No manager notes',
-      scManagerNotes: oppData.scManagerNotes || 'No SC manager notes',
-      productSpecialistNotes: oppData.productSpecialistNotes || 'No product specialist notes',
-      dScore: oppData.dScore,
-    }, forceRegenerate);
-
-    res.json(result);
-  } catch (error) {
-    console.error('Error generating summary:', error);
-    res.status(500).json({
-      error: 'Failed to generate summary',
-      details: error.message
-    });
-  }
-});
+  },
+);
 
 // GET /api/owners - Get unique owners
-app.get('/api/owners', authenticateWithPomerium, async (req, res) => {
+app.get("/api/owners", authenticateWithPomerium, async (req, res) => {
   try {
     const sql = buildOwnersQuery();
     const rows = await executeQuery(sql, undefined, req.user.email);
 
-    const owners = rows.map(row => row.OWNER).filter(Boolean);
+    const owners = rows.map((row) => row.OWNER).filter(Boolean);
     res.json(owners);
   } catch (error) {
-    console.error('Error fetching owners:', error);
-    res.status(500).json({ error: 'Failed to fetch owners', details: error.message });
+    console.error("Error fetching owners:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch owners", details: error.message });
   }
 });
 
 // GET /api/close-months - Get available close months
-app.get('/api/close-months', authenticateWithPomerium, async (req, res) => {
+app.get("/api/close-months", authenticateWithPomerium, async (req, res) => {
   try {
     const sql = buildCloseMonthsQuery();
     const rows = await executeQuery(sql, undefined, req.user.email);
 
-    const months = rows.map(row => row.CLOSE_MONTH).filter(Boolean);
+    const months = rows.map((row) => row.CLOSE_MONTH).filter(Boolean);
     res.json(months);
   } catch (error) {
-    console.error('Error fetching close months:', error);
-    res.status(500).json({ error: 'Failed to fetch close months', details: error.message });
+    console.error("Error fetching close months:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch close months", details: error.message });
   }
 });
 
-// GET /api/stats - PostgreSQL mirror status + row counts (Opps / D-Scores /
-// Activities). These reflect what the app has cached locally, not Snowflake.
-app.get('/api/stats', authenticateWithPomerium, async (req, res) => {
+// GET /api/stats - PostgreSQL mirror status + local row counts.
+app.get("/api/stats", authenticateWithPomerium, async (req, res) => {
   try {
     const [postgresql, counts] = await Promise.all([
       checkDatabaseHealth(),
@@ -688,68 +848,100 @@ app.get('/api/stats', authenticateWithPomerium, async (req, res) => {
       ...counts,
     });
   } catch (error) {
-    console.error('Error fetching stats:', error);
-    res.status(500).json({ error: 'Failed to fetch stats', details: error.message });
+    console.error("Error fetching stats:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch stats", details: error.message });
   }
 });
 
 // GET /api/hidden-opportunities - Get all hidden opportunity IDs for the current user
-app.get('/api/hidden-opportunities', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.get(
+  "/api/hidden-opportunities",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    const hiddenIds = await getHiddenOpportunities(req.user.id);
-    res.json({ hiddenOpportunityIds: hiddenIds });
-  } catch (error) {
-    console.error('Error fetching hidden opportunities:', error);
-    res.status(500).json({ error: 'Failed to fetch hidden opportunities', details: error.message });
-  }
-});
+      const hiddenIds = await getHiddenOpportunities(req.user.id);
+      res.json({ hiddenOpportunityIds: hiddenIds });
+    } catch (error) {
+      console.error("Error fetching hidden opportunities:", error);
+      res
+        .status(500)
+        .json({
+          error: "Failed to fetch hidden opportunities",
+          details: error.message,
+        });
+    }
+  },
+);
 
 // POST /api/hidden-opportunities/:id - Hide an opportunity
-app.post('/api/hidden-opportunities/:id', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.post(
+  "/api/hidden-opportunities/:id",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    const opportunityId = req.params.id;
-    await hideOpportunity(req.user.id, opportunityId);
-    res.json({ success: true, message: 'Opportunity hidden' });
-  } catch (error) {
-    console.error('Error hiding opportunity:', error);
-    res.status(500).json({ error: 'Failed to hide opportunity', details: error.message });
-  }
-});
+      const opportunityId = req.params.id;
+      await hideOpportunity(req.user.id, opportunityId);
+      res.json({ success: true, message: "Opportunity hidden" });
+    } catch (error) {
+      console.error("Error hiding opportunity:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to hide opportunity", details: error.message });
+    }
+  },
+);
 
 // DELETE /api/hidden-opportunities/:id - Unhide an opportunity
-app.delete('/api/hidden-opportunities/:id', authenticateWithPomerium, async (req, res) => {
-  try {
-    if (!databaseConnected) {
-      return res.status(503).json({ error: 'Database connection not established' });
-    }
+app.delete(
+  "/api/hidden-opportunities/:id",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
 
-    const opportunityId = req.params.id;
-    await unhideOpportunity(req.user.id, opportunityId);
-    res.json({ success: true, message: 'Opportunity unhidden' });
-  } catch (error) {
-    console.error('Error unhiding opportunity:', error);
-    res.status(500).json({ error: 'Failed to unhide opportunity', details: error.message });
-  }
-});
+      const opportunityId = req.params.id;
+      await unhideOpportunity(req.user.id, opportunityId);
+      res.json({ success: true, message: "Opportunity unhidden" });
+    } catch (error) {
+      console.error("Error unhiding opportunity:", error);
+      res
+        .status(500)
+        .json({
+          error: "Failed to unhide opportunity",
+          details: error.message,
+        });
+    }
+  },
+);
 
 // ============================================================================
 // SERVE FRONTEND
 // ============================================================================
 
 // Serve static files
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, "dist")));
 
 // SPA fallback
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
 // ============================================================================
@@ -763,18 +955,24 @@ app.listen(PORT, () => {
   console.log(`   GET  http://localhost:${PORT}/api/me (protected)`);
   console.log(`   POST http://localhost:${PORT}/api/auth/logout (protected)`);
   console.log(`   POST http://localhost:${PORT}/api/opportunities (protected)`);
-  console.log(`   GET  http://localhost:${PORT}/api/opportunities/:id/summary (protected)`);
+  console.log(
+    `   GET  http://localhost:${PORT}/api/opportunities/:id/summary (protected)`,
+  );
   console.log(`   GET  http://localhost:${PORT}/api/owners (protected)`);
   console.log(`   GET  http://localhost:${PORT}/api/close-months (protected)`);
   console.log(`   GET  http://localhost:${PORT}/api/stats (protected)`);
-  console.log(`   GET  http://localhost:${PORT}/api/user-preferences (protected)`);
-  console.log(`   PUT  http://localhost:${PORT}/api/user-preferences/:key (protected)`);
-  console.log('');
+  console.log(
+    `   GET  http://localhost:${PORT}/api/user-preferences (protected)`,
+  );
+  console.log(
+    `   PUT  http://localhost:${PORT}/api/user-preferences/:key (protected)`,
+  );
+  console.log("");
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, closing connections...');
+process.on("SIGTERM", async () => {
+  console.log("SIGTERM received, closing connections...");
   await pool.end();
   process.exit(0);
 });

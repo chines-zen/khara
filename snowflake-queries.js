@@ -2,7 +2,18 @@
  * Build SQL query for fetching opportunities with all required fields
  */
 export function buildOpportunitiesQuery(filters = {}) {
-  const { search, stages, owner, closeMonths, daysSinceMax, arrMin, opportunityIds, scUserId, closeDateFrom, closeDateTo } = filters;
+  const {
+    search,
+    stages,
+    owner,
+    closeMonths,
+    daysSinceMax,
+    arrMin,
+    opportunityIds,
+    scUserId,
+    closeDateFrom,
+    closeDateTo,
+  } = filters;
 
   // Base query with all fields from DIM and staging
   let sql = `
@@ -146,7 +157,7 @@ WHERE dim.RUN_DATE = (
 
   // Specific opportunity IDs filter (for testing)
   if (opportunityIds && opportunityIds.length > 0) {
-    const idList = opportunityIds.map(id => `'${id}'`).join(', ');
+    const idList = opportunityIds.map((id) => `'${id}'`).join(", ");
     conditions.push(`dim.CRM_OPPORTUNITY_ID IN (${idList})`);
   }
 
@@ -162,14 +173,18 @@ WHERE dim.RUN_DATE = (
 
   // Stage filter
   if (stages && stages.length > 0) {
-    const stageList = stages.map(s => `'${s.replace(/'/g, "''")}'`).join(', ');
+    const stageList = stages
+      .map((s) => `'${s.replace(/'/g, "''")}'`)
+      .join(", ");
     conditions.push(`dim.OPPORTUNITY_STAGE_NAME IN (${stageList})`);
   }
 
   // Owner filter
   if (owner) {
     const ownerEscaped = owner.replace(/'/g, "''");
-    conditions.push(`COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME) = '${ownerEscaped}'`);
+    conditions.push(
+      `COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME) = '${ownerEscaped}'`,
+    );
   }
 
   // SC identity filter (scope to opportunities where this Snowflake user is the assigned SC)
@@ -180,8 +195,10 @@ WHERE dim.RUN_DATE = (
 
   // Close month filter
   if (closeMonths && closeMonths.length > 0) {
-    const monthList = closeMonths.map(m => `'${m}'`).join(', ');
-    conditions.push(`TO_CHAR(dim.CALENDAR_CLOSEDATE, 'YYYY-MM') IN (${monthList})`);
+    const monthList = closeMonths.map((m) => `'${m}'`).join(", ");
+    conditions.push(
+      `TO_CHAR(dim.CALENDAR_CLOSEDATE, 'YYYY-MM') IN (${monthList})`,
+    );
   }
 
   // Close date range filter (e.g. fiscal quarter scoping)
@@ -195,8 +212,14 @@ WHERE dim.RUN_DATE = (
   }
 
   // Days since D-Score filter
-  if (daysSinceMax !== null && daysSinceMax !== undefined && !isNaN(daysSinceMax)) {
-    conditions.push(`DATEDIFF('day', dim.SOURCE_SNAPSHOT_DATE, CURRENT_DATE()) <= ${daysSinceMax}`);
+  if (
+    daysSinceMax !== null &&
+    daysSinceMax !== undefined &&
+    !isNaN(daysSinceMax)
+  ) {
+    conditions.push(
+      `DATEDIFF('day', dim.SOURCE_SNAPSHOT_DATE, CURRENT_DATE()) <= ${daysSinceMax}`,
+    );
   }
 
   // ARR Minimum filter
@@ -206,7 +229,7 @@ WHERE dim.RUN_DATE = (
 
   // Add all conditions to WHERE clause
   if (conditions.length > 0) {
-    sql += `\n  AND ${conditions.join('\n  AND ')}`;
+    sql += `\n  AND ${conditions.join("\n  AND ")}`;
   }
 
   sql += `\nORDER BY stg.NAME`;
@@ -398,12 +421,20 @@ LEFT JOIN (
  * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
  */
 export function buildScOpportunitiesQuery(snowflakeUserIds, scope = {}) {
-  const userIds = Array.isArray(snowflakeUserIds) ? snowflakeUserIds : [snowflakeUserIds];
-  const userIdList = userIds.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
+  const userIds = Array.isArray(snowflakeUserIds)
+    ? snowflakeUserIds
+    : [snowflakeUserIds];
+  const userIdList = userIds
+    .map((id) => `'${id.replace(/'/g, "''")}'`)
+    .join(", ");
   const { arrThreshold, closeDateFrom, closeDateTo } = scope;
 
   const scopeConditions = [];
-  if (arrThreshold !== null && arrThreshold !== undefined && !isNaN(arrThreshold)) {
+  if (
+    arrThreshold !== null &&
+    arrThreshold !== undefined &&
+    !isNaN(arrThreshold)
+  ) {
     scopeConditions.push(`arr.product_arr_usd >= ${arrThreshold}`);
   }
   if (closeDateFrom) {
@@ -414,7 +445,10 @@ export function buildScOpportunitiesQuery(snowflakeUserIds, scope = {}) {
     const toEscaped = closeDateTo.replace(/'/g, "''");
     scopeConditions.push(`dim.CALENDAR_CLOSEDATE <= '${toEscaped}'`);
   }
-  const scopeSql = scopeConditions.length > 0 ? `\n  AND ${scopeConditions.join('\n  AND ')}` : '';
+  const scopeSql =
+    scopeConditions.length > 0
+      ? `\n  AND ${scopeConditions.join("\n  AND ")}`
+      : "";
 
   return `
 ${SC_OPPORTUNITIES_SELECT}
@@ -457,7 +491,9 @@ ORDER BY stg.NAME
  */
 export function buildActivitiesQuery(createdByIds, range = {}) {
   const ids = Array.isArray(createdByIds) ? createdByIds : [createdByIds];
-  const createdByIdList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
+  const createdByIdList = ids
+    .map((id) => `'${id.replace(/'/g, "''")}'`)
+    .join(", ");
   const { fromDate, toDate, since } = range;
   const fromEscaped = fromDate.replace(/'/g, "''");
   const toEscaped = toDate.replace(/'/g, "''");
@@ -467,7 +503,7 @@ export function buildActivitiesQuery(createdByIds, range = {}) {
   // is constant per ID, so the WHERE keeps/drops each ID's rows as a whole.
   const firstSeenQualify = since
     ? `\n  AND MIN(SOURCE_SNAPSHOT_DATE) OVER (PARTITION BY ID) >= '${since.replace(/'/g, "''")}'`
-    : '';
+    : "";
 
   return `
 SELECT
@@ -529,11 +565,11 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY SOURCE_SNAPSHOT_DATE DESC) =
  */
 export function buildDispassionateReviewsQuery(opportunityIds, opts = {}) {
   const ids = Array.isArray(opportunityIds) ? opportunityIds : [opportunityIds];
-  const idList = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(', ');
+  const idList = ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(", ");
   const { since } = opts;
   const sinceClause = since
     ? `\n  AND VALID_FROM_TIMESTAMP >= '${since.replace(/'/g, "''")}'`
-    : '';
+    : "";
 
   return `
 SELECT
@@ -584,5 +620,47 @@ WHERE OPPORTUNITY_C IN (${idList})
   AND VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
   AND IS_DELETED = FALSE${sinceClause}
 ORDER BY OPPORTUNITY_C, VALID_FROM_TIMESTAMP
+`;
+}
+
+/**
+ * Build the compact Gong spotlight query used by the local call mirror.
+ * The corpus is the authoritative opportunity/call link; the unified events
+ * table supplies the spotlight fields and Gong call id.
+ */
+export function buildGongCallsQuery(opportunityIds) {
+  const ids = Array.isArray(opportunityIds) ? opportunityIds : [opportunityIds];
+  const idList = ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(", ");
+
+  return `
+SELECT
+    c.OPP_ID AS opportunity_id,
+    c.CONVERSATION_KEY AS conversation_key,
+    u.CALL_ID AS call_id,
+    c.CALL_DATE::date AS call_date,
+    COALESCE(u.TITLE, c.CALL_TITLE) AS title,
+    u.CALL_SPOTLIGHT_BRIEF AS brief,
+    u.CALL_SPOTLIGHT_NEXT_STEPS AS next_steps,
+    u.CALL_SPOTLIGHT_KEY_POINTS AS key_points,
+    COALESCE((
+      SELECT ARRAY_AGG(OBJECT_CONSTRUCT(
+        'name', p.NAME,
+        'affiliation', LOWER(COALESCE(p.AFFILIATION, 'unclassified'))
+      ))
+      FROM CLEANSED.GONG.GONG_CONVERSATION_PARTICIPANTS_SCD1 p
+      WHERE p.CONVERSATION_KEY = c.CONVERSATION_KEY
+        AND COALESCE(p.IS_DELETED, FALSE) = FALSE
+        AND p.TYPE IN ('attendee', 'invitee', 'organizer', 'required', 'optional')
+        AND LOWER(COALESCE(p.TYPE, '')) NOT IN ('invited', 'invitee')
+        AND p.NAME IS NOT NULL
+    ), ARRAY_CONSTRUCT()) AS attendees,
+    'https://us-17476.app.gong.io/call?id=' || u.CALL_ID AS gong_url
+FROM FUNCTIONAL.COMPANY_INTELLIGENCE.CI_GONG_CALL_CORPUS c
+JOIN FUNCTIONAL.CONVERGE.UNIFIED_GONG_EVENTS u
+  ON u.CONVERSATION_KEY = c.CONVERSATION_KEY
+WHERE c.OPP_ID IN (${idList})
+  AND c.CALL_DATE >= DATEADD(day, -30, CURRENT_DATE)
+  AND c.CALL_DATE <= CURRENT_DATE
+ORDER BY c.OPP_ID, c.CALL_DATE DESC
 `;
 }

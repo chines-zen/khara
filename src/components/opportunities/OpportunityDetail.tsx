@@ -5,6 +5,7 @@ import type { Opportunity } from "@/lib/opportunities";
 import { formatDisplayDate } from "@/lib/utils";
 import { sfRecordUrl } from "@/lib/sfdc";
 import { DScoreSection, TrendIndicator } from "./DScoreSection";
+import { GongCallsSection } from "./GongCallsSection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchDispassionateReviews } from "@/lib/api/dispassionate-reviews";
 import {
@@ -12,7 +13,8 @@ import {
   claudeTokenConfiguredKey,
 } from "@/hooks/use-claude-token-configured";
 
-const fmt = (n: number) => `$${Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const fmt = (n: number) =>
+  `$${Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 // Renders **bold** markers as actual bold. Everything else passes through as
 // text, so whitespace-pre-line on the parent still preserves newlines. This is
@@ -72,7 +74,11 @@ type Props = {
   isManager?: boolean;
 };
 
-export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isManager = false }: Props) {
+export function OpportunityDetail({
+  opp,
+  isHidden: initialIsHidden = false,
+  isManager = false,
+}: Props) {
   const queryClient = useQueryClient();
   const [summary, setSummary] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string>("");
@@ -103,7 +109,9 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
     setGeneratedAt("");
 
     let cancelled = false;
-    fetch(`/api/opportunities/${opp.id}/summary/cached`, { credentials: "include" })
+    fetch(`/api/opportunities/${opp.id}/summary/cached`, {
+      credentials: "include",
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
@@ -134,13 +142,14 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
     : null;
 
   // Check if there's a parsing error (notes exist but no date found)
-  const hasParsingError = !opp.lastUpdateDate && opp.scNotes && opp.scNotes.trim() !== '';
+  const hasParsingError =
+    !opp.lastUpdateDate && opp.scNotes && opp.scNotes.trim() !== "";
 
   const handleGenerateSummary = async () => {
     try {
       setIsGenerating(true);
       const response = await fetch(`/api/opportunities/${opp.id}/summary`, {
-        credentials: 'include',
+        credentials: "include",
       });
       const data = await response.json();
 
@@ -151,10 +160,14 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
         setSummary(data.summary);
         setGeneratedAt(new Date(data.generatedAt).toLocaleDateString());
       } else {
-        setSummary(data.error ? `Unable to generate summary: ${data.error}` : "Unable to generate summary. Please try again.");
+        setSummary(
+          data.error
+            ? `Unable to generate summary: ${data.error}`
+            : "Unable to generate summary. Please try again.",
+        );
       }
     } catch (error) {
-      console.error('Failed to fetch summary:', error);
+      console.error("Failed to fetch summary:", error);
       setSummary("Error loading summary.");
     } finally {
       setIsGenerating(false);
@@ -164,9 +177,12 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
   const handleRegenerateSummary = async () => {
     try {
       setIsRegenerating(true);
-      const response = await fetch(`/api/opportunities/${opp.id}/summary?regenerate=true`, {
-        credentials: 'include',
-      });
+      const response = await fetch(
+        `/api/opportunities/${opp.id}/summary?regenerate=true`,
+        {
+          credentials: "include",
+        },
+      );
       const data = await response.json();
 
       if (response.ok) {
@@ -176,10 +192,14 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
         setSummary(data.summary);
         setGeneratedAt(new Date(data.generatedAt).toLocaleDateString());
       } else {
-        setSummary(data.error ? `Unable to regenerate summary: ${data.error}` : "Unable to regenerate summary. Please try again.");
+        setSummary(
+          data.error
+            ? `Unable to regenerate summary: ${data.error}`
+            : "Unable to regenerate summary. Please try again.",
+        );
       }
     } catch (error) {
-      console.error('Failed to regenerate summary:', error);
+      console.error("Failed to regenerate summary:", error);
       setSummary("Error regenerating summary.");
     } finally {
       setIsRegenerating(false);
@@ -200,9 +220,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        setTokenError(
-          data?.error ?? "Unable to save token. Please try again.",
-        );
+        setTokenError(data?.error ?? "Unable to save token. Please try again.");
         return;
       }
       setTokenInput("");
@@ -222,22 +240,22 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
       if (checked) {
         // Hide opportunity
         await fetch(`/api/hidden-opportunities/${opp.id}`, {
-          method: 'POST',
-          credentials: 'include',
+          method: "POST",
+          credentials: "include",
         });
       } else {
         // Unhide opportunity
         await fetch(`/api/hidden-opportunities/${opp.id}`, {
-          method: 'DELETE',
-          credentials: 'include',
+          method: "DELETE",
+          credentials: "include",
         });
       }
       setIsHidden(checked);
 
       // Invalidate the hidden opportunities query to refresh the list
-      queryClient.invalidateQueries({ queryKey: ['hiddenOpportunities'] });
+      queryClient.invalidateQueries({ queryKey: ["hiddenOpportunities"] });
     } catch (error) {
-      console.error('Failed to toggle hidden state:', error);
+      console.error("Failed to toggle hidden state:", error);
     }
   };
 
@@ -297,15 +315,25 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
         <div className="grid grid-cols-4 gap-x-8 gap-y-4">
           {/* Row 1 */}
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">AE</dt>
-            <dd className="text-sm font-medium text-zd-dark mt-1">{opp.owner}</dd>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
+              AE
+            </dt>
+            <dd className="text-sm font-medium text-zd-dark mt-1">
+              {opp.owner}
+            </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Account</dt>
-            <dd className="text-sm font-medium text-zd-dark mt-1">{opp.account}</dd>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
+              Account
+            </dt>
+            <dd className="text-sm font-medium text-zd-dark mt-1">
+              {opp.account}
+            </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Last SE Update</dt>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
+              Last SE Update
+            </dt>
             <dd className="text-sm font-medium text-zd-dark mt-1">
               {hasParsingError ? (
                 <button
@@ -335,11 +363,15 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
                 D-Score
               </h4>
               <div className="flex items-center gap-1.5">
-                <span className={`text-[2.4rem] font-bold font-mono ${
-                  opp.dScore >= 31 ? 'text-green-600' :
-                  opp.dScore >= 21 ? 'text-yellow-600' :
-                  'text-red-600'
-                }`}>
+                <span
+                  className={`text-[2.4rem] font-bold font-mono ${
+                    opp.dScore >= 31
+                      ? "text-green-600"
+                      : opp.dScore >= 21
+                        ? "text-yellow-600"
+                        : "text-red-600"
+                  }`}
+                >
                   {opp.dScore}
                 </span>
                 <TrendIndicator
@@ -358,34 +390,57 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
 
           {/* Row 2 */}
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">ARR</dt>
-            <dd className="text-sm font-mono font-medium text-zd-dark mt-1">{fmt(opp.amount)}</dd>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
+              ARR
+            </dt>
+            <dd className="text-sm font-mono font-medium text-zd-dark mt-1">
+              {fmt(opp.amount)}
+            </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Stage</dt>
-            <dd className="text-sm font-medium text-zd-dark mt-1">{opp.stage}</dd>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
+              Stage
+            </dt>
+            <dd className="text-sm font-medium text-zd-dark mt-1">
+              {opp.stage}
+            </dd>
           </div>
           <div>
-            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">Close Date</dt>
-            <dd className="text-sm font-medium text-zd-dark mt-1">{formatDisplayDate(opp.closeDate)}</dd>
+            <dt className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
+              Close Date
+            </dt>
+            <dd className="text-sm font-medium text-zd-dark mt-1">
+              {formatDisplayDate(opp.closeDate)}
+            </dd>
           </div>
         </div>
       </div>
 
       {/* Date Format Help Dialog */}
       {showDateHelp && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDateHelp(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowDateHelp(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-lg mx-4 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start gap-3 mb-4">
               <AlertCircle className="size-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <h3 className="text-lg font-bold text-zd-dark mb-2">Date Parsing Error</h3>
+                <h3 className="text-lg font-bold text-zd-dark mb-2">
+                  Date Parsing Error
+                </h3>
                 <p className="text-sm text-zd-dark/80 mb-3">
-                  The "Last SE Update" field is automatically calculated by scanning the SC Notes for dates.
-                  No valid date format was found in the current SE Notes.
+                  The "Last SE Update" field is automatically calculated by
+                  scanning the SC Notes for dates. No valid date format was
+                  found in the current SE Notes.
                 </p>
                 <div className="bg-zd-bg rounded p-3 mb-3">
-                  <p className="text-xs font-bold text-zd-teal/60 uppercase tracking-wider mb-2">Supported Date Formats</p>
+                  <p className="text-xs font-bold text-zd-teal/60 uppercase tracking-wider mb-2">
+                    Supported Date Formats
+                  </p>
                   <ul className="text-sm space-y-1 text-zd-dark/80 font-mono">
                     <li>• MM/DD/YYYY (e.g., 05/26/2026)</li>
                     <li>• M/D/YY (e.g., 5/26/26)</li>
@@ -394,7 +449,8 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
                   </ul>
                 </div>
                 <p className="text-sm text-zd-dark/80">
-                  Please ensure your SC Notes include dates in one of these standard formats at the beginning of each update entry.
+                  Please ensure your SC Notes include dates in one of these
+                  standard formats at the beginning of each update entry.
                 </p>
               </div>
             </div>
@@ -417,7 +473,9 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
             <h4 className="text-[10px] font-bold text-zd-teal/40 uppercase tracking-widest">
               Opp Summary
             </h4>
-            <span className="text-[10px] uppercase tracking-wider text-zd-green font-bold">AI</span>
+            <span className="text-[10px] uppercase tracking-wider text-zd-green font-bold">
+              AI
+            </span>
           </div>
           {!claudeTokenConfigured ? (
             <div>
@@ -461,18 +519,26 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
             <>
               <p className="text-sm leading-relaxed text-zd-dark/85 whitespace-pre-line">
                 {isGenerating ? (
-                  <span className="text-zd-teal/50 animate-pulse">Generating summary...</span>
+                  <span className="text-zd-teal/50 animate-pulse">
+                    Generating summary...
+                  </span>
                 ) : isRegenerating ? (
-                  <span className="text-zd-teal/50 animate-pulse">Regenerating summary...</span>
+                  <span className="text-zd-teal/50 animate-pulse">
+                    Regenerating summary...
+                  </span>
                 ) : summary === null ? (
-                  <span className="text-zd-teal/50">No summary generated yet.</span>
+                  <span className="text-zd-teal/50">
+                    No summary generated yet.
+                  </span>
                 ) : (
                   renderWithBold(summary)
                 )}
               </p>
               <div className="mt-3">
                 <p className="text-[11px] italic text-zd-teal/50">
-                  {summary !== null ? `Generated by Claude on ${generatedAt || "N/A"}` : ""}
+                  {summary !== null
+                    ? `Generated by Claude on ${generatedAt || "N/A"}`
+                    : ""}
                 </p>
               </div>
             </>
@@ -536,7 +602,10 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
               <div className="space-y-4">
                 <NoteBlock label="AE Notes" body={aeNotes} />
                 <NoteBlock label="AE Manager Notes" body={aeMgrNotes} />
-                <NoteBlock label="PreSales Specialist Notes" body={overlayNotes} />
+                <NoteBlock
+                  label="PreSales Specialist Notes"
+                  body={overlayNotes}
+                />
               </div>
             </div>
           </TabsContent>
@@ -546,9 +615,7 @@ export function OpportunityDetail({ opp, isHidden: initialIsHidden = false, isMa
           </TabsContent>
 
           <TabsContent value="gong-calls" className="mt-6">
-            <section className="border border-zd-border rounded p-8 text-center">
-              <p className="text-sm text-zd-teal/60">Coming soon</p>
-            </section>
+            <GongCallsSection oppId={opp.id} />
           </TabsContent>
         </Tabs>
       </div>
