@@ -1,7 +1,82 @@
 import { executeQuery } from '../snowflake-connection.js';
 
+function quote(email) {
+  return email.replace(/'/g, "''");
+}
+
+/**
+ * Resolve everything we need about a logged-in user from USER_HISTORY in a
+ * single round trip: their SC identity (USER_ID / FULL_NAME) *and* whether they
+ * have direct reports. Previously these were two separate queries against the
+ * same table on every cold login (resolveScUserId + checkHasDirectReports),
+ * which is the bulk of the login-time Snowflake traffic.
+ *
+ * The two lookups keep their original, deliberately different semantics rather
+ * than being folded into one row:
+ *   - identity: no END_DATE filter, deduped per EMAIL by lowest USER_ID. A
+ *     departed SE still resolves, so their cached opps keep working.
+ *   - current_record: END_DATE >= CURRENT_DATE, newest first. Manager status is
+ *     only meaningful for a currently-employed record.
+ *
+ * @param {string} email
+ * @returns {Promise<{ userId: string, fullName: string, isManager: boolean | null } | null>}
+ *   null if this email has no USER_HISTORY record at all. isManager is null when
+ *   there's no *current* record (e.g. not yet provisioned as an SC), matching
+ *   checkHasDirectReports' contract.
+ */
+export async function resolveUserIdentity(email) {
+  const safeEmail = quote(email);
+  const sql = `
+    WITH identity AS (
+      SELECT USER_ID, FULL_NAME
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
+      WHERE LOWER(EMAIL) = LOWER('${safeEmail}')
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY USER_ID) = 1
+    ),
+    current_record AS (
+      SELECT EMPLOYEE_ID
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
+      WHERE LOWER(EMAIL) = LOWER('${safeEmail}')
+        AND END_DATE >= CURRENT_DATE
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY END_DATE DESC) = 1
+    )
+    SELECT
+      identity.USER_ID,
+      identity.FULL_NAME,
+      (SELECT COUNT(*) FROM current_record) AS HAS_CURRENT_RECORD,
+      (
+        SELECT COUNT(DISTINCT uh.USER_ID)
+        FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY uh
+        WHERE uh.MANAGER_EMPLOYEE_ID = (SELECT EMPLOYEE_ID FROM current_record)
+          AND uh.END_DATE >= CURRENT_DATE
+      ) AS DIRECT_REPORTS
+    FROM identity
+  `;
+
+  const rows = await executeQuery(sql, undefined, email);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+
+  return {
+    userId: row.USER_ID,
+    fullName: row.FULL_NAME,
+    // No current employment record -> manager status is unknown, not false.
+    isManager: Number(row.HAS_CURRENT_RECORD) > 0
+      ? Number(row.DIRECT_REPORTS) > 0
+      : null,
+  };
+}
+
 /**
  * Resolve a logged-in user's email to their Snowflake SC identity.
+ *
+ * Prefer resolveUserIdentity() on the login path — it returns this plus manager
+ * status in one query. This remains for callers that only have an email and no
+ * cached identity to fall back on (see index.js's /api/opportunities).
  * @param {string} email
  * @returns {Promise<{ userId: string, fullName: string } | null>}
  */

@@ -1,4 +1,28 @@
-export const MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
+export const MODEL_ID = 'global.anthropic.claude-sonnet-4-6';
+
+/**
+ * Extract text from the response shapes used by Anthropic's invoke API and
+ * the gateway's Converse-compatible responses. Keeping this at the boundary
+ * prevents a successful HTTP response with an unexpected body from becoming
+ * an empty summary that gets cached forever.
+ */
+function extractResponseText(data) {
+  const content = data?.content ?? data?.output?.message?.content;
+
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text.trim())
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (typeof data?.completion === 'string') return data.completion.trim();
+  if (typeof data?.output_text === 'string') return data.output_text.trim();
+  return '';
+}
 
 /**
  * @typedef {Object} SummaryRequest
@@ -172,7 +196,17 @@ Provide only the summary text, no preamble. Write plain prose. You may use **bol
     throw new Error(`AI gateway request failed (${response.status}): ${body}`);
   }
 
-  const data = await response.json();
-  const textBlock = data.content?.find((block) => block.type === 'text');
-  return textBlock?.text ?? '';
+  let data;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error(`AI gateway returned invalid JSON: ${error.message}`);
+  }
+
+  const summary = extractResponseText(data);
+  if (!summary) {
+    throw new Error('AI gateway returned a successful response without summary text');
+  }
+
+  return summary;
 }

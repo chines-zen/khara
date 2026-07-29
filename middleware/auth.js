@@ -1,6 +1,23 @@
 import { pool } from '../db/index.js';
-import { checkHasDirectReports, resolveScUserId } from '../services/sc-lookup.js';
+import { resolveUserIdentity } from '../services/sc-lookup.js';
 import { ensureDefaultOppScope } from '../services/opp-scope.js';
+
+// How long a cached identity (sfdc_user_id + is_manager) is trusted before it's
+// re-resolved from USER_HISTORY. Long, because these change rarely — but not
+// never, so a re-provisioned USER_ID or a promotion isn't cached permanently.
+const IDENTITY_TTL_DAYS = 7;
+
+// Identity resolutions in flight, keyed by email. The frontend fires ~8 parallel
+// requests on a cold load (three /api/me plus opportunities/preferences/hidden),
+// and every one of them hits this middleware before any of them has written a
+// session or a users row — so the "already resolved?" checks below all miss and
+// each request would run its own USER_HISTORY query. Sharing the promise means
+// the first request does the lookup and the rest await its result.
+//
+// Same pattern as `connecting` in snowflake-connection.js. Note that dedupes the
+// *connection*, which is why a cold load only opens one SSO tab; this dedupes the
+// *queries* that then run over it.
+const identityInFlight = new Map();
 
 /**
  * Extract user info from Pomerium headers
@@ -32,7 +49,8 @@ async function upsertUser(userInfo) {
     DO UPDATE SET
       last_login = NOW(),
       name = COALESCE(EXCLUDED.name, users.name)
-    RETURNING id, email, sub, name, created_at, last_login, is_manager
+    RETURNING id, email, sub, name, created_at, last_login, is_manager,
+              sfdc_user_id, identity_resolved_at
   `;
 
   const result = await pool.query(query, [email, sub, name]);
@@ -48,22 +66,6 @@ async function upsertUser(userInfo) {
 }
 
 /**
- * Resolve the SE's real full name via email > userID > name (Snowflake
- * USER_HISTORY), the same path opportunities use. Falls back to `fallbackName`
- * when there's no email or the lookup fails/returns nothing — never throws.
- */
-async function resolveUserName(email, fallbackName) {
-  if (!email) return fallbackName;
-  try {
-    const scUser = await resolveScUserId(email);
-    if (scUser?.fullName) return scUser.fullName;
-  } catch (error) {
-    console.error('Failed to resolve user name from Snowflake:', error);
-  }
-  return fallbackName;
-}
-
-/**
  * Load an existing user by id (read-only).
  * Used to reuse the session's already-upserted user on subsequent requests so
  * we don't re-run upsertUser — which would burn a SERIAL sequence value and
@@ -71,36 +73,96 @@ async function resolveUserName(email, fallbackName) {
  */
 async function getUserById(id) {
   const result = await pool.query(
-    'SELECT id, email, sub, name, created_at, last_login, is_manager FROM users WHERE id = $1',
+    `SELECT id, email, sub, name, created_at, last_login, is_manager,
+            sfdc_user_id, identity_resolved_at
+     FROM users WHERE id = $1`,
     [id]
   );
   return result.rows[0] || null;
 }
 
 /**
- * Determine and cache whether a user is a manager (has direct reports).
- * Only hits Snowflake once per user — after that, is_manager is read from
- * Postgres. Failures here must never block login, so they're swallowed and
- * left for the next login to retry.
+ * Whether a user's cached identity (sfdc_user_id + is_manager) still needs
+ * resolving from Snowflake. Anything unresolved or past the TTL does.
  */
-async function ensureManagerFlag(user, email) {
-  if (user.is_manager !== null) {
-    return user.is_manager;
+function needsIdentityRefresh(user) {
+  if (!user.sfdc_user_id || user.is_manager === null) {
+    return true;
+  }
+  if (!user.identity_resolved_at) {
+    return true;
+  }
+  const ageMs = Date.now() - new Date(user.identity_resolved_at).getTime();
+  return ageMs > IDENTITY_TTL_DAYS * 24 * 60 * 60 * 1000;
+}
+
+/**
+ * Resolve a user's identity from Snowflake at most once per email at a time,
+ * sharing the in-flight promise across concurrent requests. Never throws —
+ * a failure resolves to null and is left for a later request to retry.
+ */
+function resolveIdentityOnce(email) {
+  const inFlight = identityInFlight.get(email);
+  if (inFlight) {
+    return inFlight;
   }
 
-  try {
-    const isManager = await checkHasDirectReports(email);
+  const promise = resolveUserIdentity(email)
+    .catch((error) => {
+      console.error('Failed to resolve user identity from Snowflake:', error);
+      return null;
+    })
+    .finally(() => {
+      identityInFlight.delete(email);
+    });
 
-    if (isManager !== null) {
-      await pool.query('UPDATE users SET is_manager = $1 WHERE id = $2', [isManager, user.id]);
-      user.is_manager = isManager;
-    }
+  identityInFlight.set(email, promise);
+  return promise;
+}
 
-    return isManager;
-  } catch (error) {
-    console.error('Failed to determine manager status:', error);
-    return null;
+/**
+ * Populate and cache the user's Snowflake identity: their SC USER_ID and
+ * whether they manage anyone. One USER_HISTORY query covers both, and the
+ * result is persisted so subsequent logins — and, more importantly, cache
+ * refreshes — read it from Postgres instead of re-querying Snowflake.
+ *
+ * `fallbackName` (from the Pomerium header, or a dev placeholder) is used when
+ * Snowflake can't resolve a name. Mutates `user` in place so callers see the
+ * resolved values on req.user.
+ *
+ * Failures never block login: is_manager stays NULL, which callers must treat
+ * as "unknown", not "not a manager".
+ */
+async function ensureUserIdentity(user, email, fallbackName) {
+  if (!email || !needsIdentityRefresh(user)) {
+    return user;
   }
+
+  const identity = await resolveIdentityOnce(email);
+
+  if (!identity) {
+    return user;
+  }
+
+  // A user with no current employment record resolves isManager as null. Keep
+  // any previously-known value rather than regressing it to unknown.
+  const isManager = identity.isManager ?? user.is_manager ?? null;
+  const name = identity.fullName || user.name || fallbackName;
+
+  const result = await pool.query(
+    `UPDATE users
+     SET sfdc_user_id = $1,
+         is_manager = $2,
+         name = COALESCE($3, name),
+         identity_resolved_at = NOW()
+     WHERE id = $4
+     RETURNING id, email, sub, name, created_at, last_login, is_manager,
+               sfdc_user_id, identity_resolved_at`,
+    [identity.userId, isManager, name, user.id]
+  );
+
+  Object.assign(user, result.rows[0]);
+  return user;
 }
 
 /**
@@ -129,15 +191,12 @@ export async function authenticateWithPomerium(req, res, next) {
       }
 
       if (!user) {
-        // Resolve the real full name from Snowflake so the dev user lines up with
-        // the rest of the app (e.g. "Chad Hines") instead of a placeholder. Only
-        // possible once a real email is captured; failures fall back to the
-        // placeholder and never block login.
-        const devName = await resolveUserName(capturedEmail, 'Development User');
-
         // Upsert through the real user path so preferences/SC lookups exercise
         // the same code as a real Pomerium login when switching test emails.
-        user = await upsertUser({ email: devEmail, sub: `dev-local-${devEmail}`, name: devName });
+        // The real name comes from the identity resolution below, which also
+        // fills in sfdc_user_id and is_manager — one Snowflake query for all
+        // three instead of a separate name lookup here.
+        user = await upsertUser({ email: devEmail, sub: `dev-local-${devEmail}`, name: 'Development User' });
 
         // Set session if available
         if (req.session) {
@@ -153,7 +212,7 @@ export async function authenticateWithPomerium(req, res, next) {
       req.user.needsEmailSetup = !capturedEmail;
 
       if (capturedEmail) {
-        await ensureManagerFlag(req.user, capturedEmail);
+        await ensureUserIdentity(req.user, capturedEmail, 'Development User');
       }
 
       return next();
@@ -179,12 +238,10 @@ export async function authenticateWithPomerium(req, res, next) {
     }
 
     if (!user) {
-      // New session (or changed identity) — upsert refreshes last_login.
-      // Resolve the real full name via email > userID > name (Snowflake) so the
-      // stored name matches the rest of the app, falling back to the Pomerium
-      // header name when Snowflake can't resolve the email.
-      const resolvedName = await resolveUserName(pomeriumUser.email, pomeriumUser.name);
-      user = await upsertUser({ ...pomeriumUser, name: resolvedName });
+      // New session (or changed identity) — upsert refreshes last_login. The
+      // Pomerium header name seeds the row; ensureUserIdentity below replaces it
+      // with the real USER_HISTORY full name when it can resolve one.
+      user = await upsertUser(pomeriumUser);
       req.session.userId = user.id;
       req.session.userEmail = user.email;
     }
@@ -192,7 +249,10 @@ export async function authenticateWithPomerium(req, res, next) {
     // Attach user to request object
     req.user = user;
 
-    await ensureManagerFlag(req.user, pomeriumUser.email);
+    // Resolves USER_ID + manager status in one Snowflake query, cached in
+    // Postgres. Awaited before next() so every handler sees a settled
+    // is_manager rather than racing the lookup.
+    await ensureUserIdentity(req.user, pomeriumUser.email, pomeriumUser.name);
 
     next();
   } catch (error) {

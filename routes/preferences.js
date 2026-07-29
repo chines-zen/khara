@@ -6,8 +6,13 @@ import {
   deleteUserPreference,
   migratePreferencesFromLocalStorage
 } from '../services/preferences.js';
+import { resolveScopeUserIds } from '../services/opp-scope.js';
 
 const router = express.Router();
+
+// Saving this key can carry a manager's Sales Engineer list, whose emails we
+// resolve to Snowflake USER_IDs once here so the data-refresh paths don't have to.
+const OPP_SCOPE_KEY = 'oppScopeSettings';
 
 /**
  * GET /api/user-preferences
@@ -61,7 +66,24 @@ router.put('/:key', async (req, res) => {
     }
 
     const result = await setUserPreference(userId, key, value);
-    res.json(result);
+
+    // A manager saving their SE list: resolve those emails to USER_IDs now and
+    // cache them on the preference, so each later cache refresh is a single
+    // Snowflake query instead of an identity lookup plus the data query.
+    //
+    // Best-effort — a Snowflake failure must not fail the save, since the
+    // preference itself is already stored and the refresh path falls back to a
+    // live lookup when no cached IDs are present.
+    let scUserIdResolution = null;
+    if (key === OPP_SCOPE_KEY && req.user.is_manager && Array.isArray(value?.scEmails) && value.scEmails.length > 0) {
+      try {
+        scUserIdResolution = await resolveScopeUserIds(userId, req.user.email);
+      } catch (error) {
+        console.error('Failed to resolve SE emails to Snowflake USER_IDs:', error);
+      }
+    }
+
+    res.json(scUserIdResolution ? { ...result, scUserIdResolution } : result);
   } catch (error) {
     console.error('Error setting preference:', error);
     res.status(500).json({ error: 'Failed to set preference' });

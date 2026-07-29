@@ -1,6 +1,5 @@
 import "../styles.css";
 
-import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
@@ -16,6 +15,8 @@ import {
   MANAGER_SCOPE_GATE_QUERY_KEY,
   fetchManagerNeedsScopeSetup,
 } from "@/lib/api/manager-scope";
+import { ME_QUERY_KEY, fetchMe } from "@/lib/api/me";
+import { useDevMode } from "@/hooks/use-dev-mode";
 
 function NotFoundComponent() {
   return (
@@ -104,13 +105,31 @@ function RootComponent() {
   );
 }
 
+// Shared /api/me read. Both gates and useIsManager use this same query key, so a
+// page load issues one request instead of one per consumer — each request runs
+// the auth middleware's identity resolution, so duplicates cost Snowflake work.
+function useMe() {
+  const { data, isPending } = useQuery({
+    queryKey: ME_QUERY_KEY,
+    queryFn: fetchMe,
+    staleTime: Infinity,
+    retry: false,
+  });
+  return { me: data ?? null, isPending };
+}
+
 // Managers whose account has no SEs configured yet can't run a meaningful first
 // sync (their own name rarely owns opps), so block the app behind a dialog that
 // sends them to Settings. Clears automatically once SE emails are saved.
 function ManagerScopeGate() {
+  const { me } = useMe();
+
   const { data: needsSetup } = useQuery({
-    queryKey: MANAGER_SCOPE_GATE_QUERY_KEY,
-    queryFn: fetchManagerNeedsScopeSetup,
+    queryKey: [...MANAGER_SCOPE_GATE_QUERY_KEY, me?.isManager ?? null],
+    queryFn: () => fetchManagerNeedsScopeSetup(me),
+    // Wait for /api/me — without it every load would briefly resolve "not a
+    // manager" and the gate would never show for those who need it.
+    enabled: me !== null,
     retry: false,
   });
 
@@ -126,32 +145,8 @@ function ManagerScopeGate() {
 // a real email has been provided (see needsEmailSetup in middleware/auth.js).
 function EmailSetupGate() {
   const queryClient = useQueryClient();
-  const [devMode, setDevMode] = useState(false);
-  const [needsEmailSetup, setNeedsEmailSetup] = useState(false);
-
-  const refreshMe = () => {
-    fetch("/api/health", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((health) => {
-        if (!health?.devMode) {
-          setDevMode(false);
-          setNeedsEmailSetup(false);
-          return;
-        }
-        setDevMode(true);
-        return fetch("/api/me", { credentials: "include" })
-          .then((res) => (res.ok ? res.json() : null))
-          .then((me) => setNeedsEmailSetup(Boolean(me?.needsEmailSetup)));
-      })
-      .catch(() => {
-        setDevMode(false);
-        setNeedsEmailSetup(false);
-      });
-  };
-
-  useEffect(() => {
-    refreshMe();
-  }, []);
+  const devMode = useDevMode();
+  const { me } = useMe();
 
   const handleSave = async (email: string) => {
     const response = await fetch("/api/dev/session-email", {
@@ -166,11 +161,18 @@ function EmailSetupGate() {
       throw new Error(data?.details || data?.error || "Failed to connect to Snowflake");
     }
 
+    // The captured email changes who we are, so every identity-derived query has
+    // to be refetched — /api/me first, since the gates and manager scoping read it.
+    await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
     queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-    refreshMe();
   };
 
   if (!devMode) return null;
 
-  return <EmailCaptureDialog open={needsEmailSetup} onSave={handleSave} />;
+  return (
+    <EmailCaptureDialog
+      open={Boolean(me?.needsEmailSetup)}
+      onSave={handleSave}
+    />
+  );
 }

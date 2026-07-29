@@ -1,18 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-
-async function fetchIsManager(): Promise<boolean> {
-  const res = await fetch("/api/me", { credentials: "include" });
-  if (!res.ok) return false;
-  const me = await res.json().catch(() => null);
-  return Boolean(me?.isManager);
-}
+import { ME_QUERY_KEY, fetchMe } from "@/lib/api/me";
 
 export function useIsManager(): boolean {
   const { data } = useQuery({
-    queryKey: ["me", "isManager"],
-    queryFn: fetchIsManager,
+    queryKey: ME_QUERY_KEY,
+    queryFn: fetchMe,
     staleTime: Infinity,
     retry: false,
   });
-  return data ?? false;
+  return Boolean(data?.isManager);
 }

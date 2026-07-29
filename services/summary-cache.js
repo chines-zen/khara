@@ -13,7 +13,7 @@ export async function getCachedSummary(opportunityId, opportunityData, forceRege
   if (!forceRegenerate) {
     const cachedSummary = await getCachedSummaryFromDb(opportunityId);
 
-    if (cachedSummary) {
+    if (cachedSummary?.summary?.trim()) {
       return {
         summary: cachedSummary.summary,
         cached: true,
@@ -45,7 +45,7 @@ export async function getCachedSummary(opportunityId, opportunityData, forceRege
  */
 export async function getSummaryIfCached(opportunityId) {
   const cached = await getCachedSummaryFromDb(opportunityId);
-  if (!cached) return null;
+  if (!cached?.summary?.trim()) return null;
 
   return {
     summary: cached.summary,

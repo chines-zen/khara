@@ -101,6 +101,7 @@ function applyFilters(
 }
 
 type GroupByOption = "opp" | "owner" | "stage" | "nameOfSc";
+type WinRateMode = "count" | "value";
 
 const GROUP_BY_LABELS: Record<GroupByOption, string> = {
   opp: "Opp",
@@ -229,6 +230,7 @@ function DashboardPage() {
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("owner");
   const [groupByOpen, setGroupByOpen] = useState(false);
+  const [winRateMode, setWinRateMode] = useState<WinRateMode>("count");
   const {
     data: loaderOpportunities,
     isError,
@@ -258,10 +260,20 @@ function DashboardPage() {
       .filter((o) => o.stage !== "Won" && o.stage !== "Lost")
       .reduce((s, o) => s + o.amount, 0);
     const closed = won.length + lost.length;
-    const winRate = closed > 0 ? (won.length / closed) * 100 : 0;
+    const closedValue = [...won, ...lost].reduce((s, o) => s + o.amount, 0);
     const wonValue = won.reduce((s, o) => s + o.amount, 0);
-    return { total, wonCount: won.length, wonValue, pipeline, winRate };
-  }, [filtered]);
+    const winRateBase = winRateMode === "count" ? closed : closedValue;
+    const winRateNumerator = winRateMode === "count" ? won.length : wonValue;
+    const winRate = winRateBase > 0 ? (winRateNumerator / winRateBase) * 100 : 0;
+    return {
+      total,
+      wonCount: won.length,
+      closedCount: closed,
+      wonValue,
+      pipeline,
+      winRate,
+    };
+  }, [filtered, winRateMode]);
 
   const { rows: chartData, series } = useMemo(
     () => buildChartData(filtered, groupBy),
@@ -299,7 +311,7 @@ function DashboardPage() {
         <div className="grid grid-cols-4 gap-4">
           <KpiCard label="Total Opportunities" value={String(kpis.total)} />
           <KpiCard
-            label={`Won (${kpis.wonCount})`}
+            label={`Won (${kpis.wonCount}/${kpis.closedCount})`}
             value={fmtCompact(kpis.wonValue)}
             accent
             delay={60}
@@ -309,11 +321,28 @@ function DashboardPage() {
             value={fmtCompact(kpis.pipeline)}
             delay={120}
           />
-          <KpiCard
-            label="Win Rate"
-            value={`${kpis.winRate.toFixed(1)}%`}
-            delay={180}
-          />
+          <div
+            className="bg-white p-4 border border-zd-border rounded animate-row"
+            style={{ animationDelay: "180ms" }}
+          >
+            <div className="flex items-center gap-0 mb-1">
+              <span className="text-[11px] font-semibold text-zd-teal/60 uppercase tracking-wider">
+                Win Rate
+              </span>
+              <select
+                aria-label="Win rate calculation"
+                value={winRateMode}
+                onChange={(e) => setWinRateMode(e.target.value as WinRateMode)}
+                className="bg-transparent text-[11px] font-semibold text-zd-teal/60 border-0 p-0 focus:outline-none focus:ring-0 cursor-pointer"
+              >
+                <option value="count">(#)</option>
+                <option value="value">($)</option>
+              </select>
+            </div>
+            <p className="text-2xl font-bold font-mono text-zd-dark">
+              {kpis.winRate.toFixed(1)}%
+            </p>
+          </div>
         </div>
 
         <div className="bg-white border border-zd-border rounded p-4">

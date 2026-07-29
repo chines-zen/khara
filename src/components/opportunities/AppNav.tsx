@@ -70,9 +70,14 @@ export function AppNav() {
     );
   }, []);
 
+  // retry: false must match every other observer of this key (the dashboard and
+  // opportunities pages). Mismatched retry settings on a shared key resolve by
+  // observer registration order, and each retry of a failed fetch re-enters the
+  // Snowflake connect path — which in EXTERNALBROWSER mode is a new SSO tab.
   const { data, dataUpdatedAt } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
+    retry: false,
   });
   const lastRefreshed = formatLastRefreshed(data?.metadata?.cachedAt, timezone);
 

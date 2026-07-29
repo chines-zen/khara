@@ -120,6 +120,36 @@ export async function connectToSnowflake(email) {
   return promise;
 }
 
+// Snowflake GS error codes that mean "this session is no longer usable" — the
+// only ones worth throwing away a connection over. Mirrors
+// snowflake-sdk/lib/constants/gs_errors.
+const SESSION_DEAD_CODES = new Set([
+  '390104', // SESSION_TOKEN_INVALID
+  '390111', // GONE_SESSION
+  '390112', // SESSION_TOKEN_EXPIRED
+  '390114', // MASTER_TOKEN_EXPIRED
+  '390195', // ID_TOKEN_INVALID
+]);
+
+/**
+ * Whether a query error means the connection itself is dead (expired SSO session
+ * over an idle weekend) rather than the statement being at fault.
+ *
+ * This distinction matters: evicting on *any* error means a bad SQL string, a
+ * suspended warehouse, or a statement timeout throws away a perfectly good
+ * authenticated connection — and in EXTERNALBROWSER mode the next request then
+ * pops a fresh SSO browser tab to rebuild it.
+ */
+function isSessionDeadError(err) {
+  const code = err?.data?.errorCode ?? err?.code;
+  if (code && SESSION_DEAD_CODES.has(String(code))) {
+    return true;
+  }
+  // Fall back to the SQL state for authorization failures (28000), which the SDK
+  // surfaces without a GS error code in some paths.
+  return err?.sqlState === '28000';
+}
+
 export async function executeQuery(sql, binds, email) {
   const key = resolveKey(email);
   const conn = await connectToSnowflake(email);
@@ -129,10 +159,12 @@ export async function executeQuery(sql, binds, email) {
       binds,
       complete: (err, _stmt, rows) => {
         if (err) {
-          // The cached connection may be dead (e.g. an expired SSO session
-          // over an idle weekend). Drop it so the next request re-authenticates
-          // instead of repeatedly failing against the same stale handle.
-          connections.delete(key);
+          // Only drop the cached connection when the session is genuinely dead,
+          // so the next request re-authenticates. A statement-level failure
+          // leaves the connection in place — see isSessionDeadError.
+          if (isSessionDeadError(err)) {
+            connections.delete(key);
+          }
           lastErrors.set(key, err.message);
           reject(err);
           return;

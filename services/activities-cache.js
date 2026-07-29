@@ -22,15 +22,17 @@ const INCREMENTAL_BUFFER_DAYS = 2;
  * Scoped by who *created* the activity record (CREATED_BY_ID), not who it's
  * assigned to (OWNER_ID) - see buildActivitiesQuery for why.
  * @param {string} userEmail - identity to run Snowflake queries as
- * @param {{ scEmails?: string[], force?: boolean }} [scope] - manager-only:
+ * @param {{ scEmails?: string[], scUserIds?: string[], sfdcUserId?: string, force?: boolean }} [scope] - manager-only:
  *   scope to these SEs instead of userEmail's own identity. `force` (the
  *   NavBar "Refresh Data" button) resyncs every in-scope SE now, ignoring the
  *   TTL gate - still incrementally for SEs already synced, full-backfill for new ones.
+ *   scUserIds / sfdcUserId are pre-resolved USER_IDs (see sc-opportunities-cache.js)
+ *   that let the sync skip the USER_HISTORY identity query.
  */
 export async function getActivities(userEmail, scope = {}) {
-  const { scEmails = [], force = false } = scope;
+  const { scEmails = [], scUserIds = [], sfdcUserId = null, force = false } = scope;
 
-  const createdByIds = await resolveCreatedByIds(userEmail, scEmails);
+  const createdByIds = await resolveCreatedByIds(userEmail, scEmails, scUserIds, sfdcUserId);
   if (createdByIds.length === 0) {
     throw new Error(`No Snowflake user found for: ${scEmails.length > 0 ? scEmails.join(', ') : userEmail}`);
   }
@@ -49,9 +51,13 @@ export async function getActivities(userEmail, scope = {}) {
   return { activities, cached: idsToSync.length === 0, cachedAt };
 }
 
-async function resolveCreatedByIds(userEmail, scEmails) {
+async function resolveCreatedByIds(userEmail, scEmails, scUserIds = [], sfdcUserId = null) {
   if (scEmails.length > 0) {
-    return resolveScUserIds(scEmails, userEmail);
+    return scUserIds.length > 0 ? scUserIds : resolveScUserIds(scEmails, userEmail);
+  }
+
+  if (sfdcUserId) {
+    return [sfdcUserId];
   }
 
   const scUser = await resolveScUserId(userEmail);

@@ -9,9 +9,14 @@ const CACHE_TTL_HOURS = 12;
  * Get opportunities for SC user (with 12-hour cache)
  * @param {number} userId - PostgreSQL user ID
  * @param {string} userEmail - Email for Snowflake lookup
- * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string, scEmails?: string[] }} [scope]
+ * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string, scEmails?: string[], scUserIds?: string[], sfdcUserId?: string }} [scope]
  *   scEmails (manager-only): when set, opportunities are scoped to these SCs
  *   instead of userEmail's own identity.
+ *   scUserIds (manager-only): USER_IDs already resolved for scEmails, so the
+ *   refresh path doesn't re-query USER_HISTORY. Partial/absent entries are
+ *   resolved on demand.
+ *   sfdcUserId: the requesting user's own cached USER_ID (users.sfdc_user_id),
+ *   used when scEmails is empty. Avoids an identity query per cache refresh.
  */
 export async function getScOpportunities(userId, userEmail, scope = {}) {
   console.log(`[SC Cache] Checking cache for user ${userId} (${userEmail})`);
@@ -62,17 +67,23 @@ async function getCachedScOpportunities(userId) {
 }
 
 async function fetchScOpportunitiesFromSnowflake(userEmail, scope = {}) {
-  const { scEmails = [] } = scope;
+  const { scEmails = [], scUserIds = [], sfdcUserId = null } = scope;
 
   // Step 1: Resolve Snowflake USER_ID(s). Manager scoping (scEmails set) resolves
-  // those SCs' identities instead of the logged-in user's own.
+  // those SCs' identities instead of the logged-in user's own. Both branches
+  // prefer an already-cached USER_ID so a cache refresh is a single Snowflake
+  // query (the opportunity query) rather than an identity lookup plus that.
   let snowflakeUserIds;
   if (scEmails.length > 0) {
-    snowflakeUserIds = await resolveScUserIds(scEmails, userEmail);
+    snowflakeUserIds = scUserIds.length > 0
+      ? scUserIds
+      : await resolveScUserIds(scEmails, userEmail);
 
     if (snowflakeUserIds.length === 0) {
       throw new Error(`No Snowflake user found for any of: ${scEmails.join(', ')}`);
     }
+  } else if (sfdcUserId) {
+    snowflakeUserIds = [sfdcUserId];
   } else {
     const scUser = await resolveScUserId(userEmail);
 

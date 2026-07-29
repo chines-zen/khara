@@ -57,6 +57,21 @@ export async function initializeDatabase() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS is_manager BOOLEAN
     `);
 
+    // sfdc_user_id: the user's Snowflake/Salesforce USER_ID from USER_HISTORY,
+    // resolved once alongside is_manager and cached here. This is what scopes
+    // the opportunity/activity queries, so persisting it keeps a cache refresh
+    // to a single Snowflake call instead of re-resolving the identity first.
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS sfdc_user_id VARCHAR(255)
+    `);
+
+    // When the identity lookup last succeeded. Both cached values above are
+    // refreshed together once this goes stale, so a re-provisioned USER_ID or a
+    // promotion/demotion is eventually picked up rather than cached forever.
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_resolved_at TIMESTAMP
+    `);
+
     // User preferences table - store filter defaults, saved views
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_preferences (

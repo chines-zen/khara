@@ -1,9 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppNav } from "@/components/opportunities/AppNav";
 import { useDoNotClickActive } from "@/hooks/use-do-not-click-active";
+import { ME_QUERY_KEY, fetchMe } from "@/lib/api/me";
 import {
   PREFERRED_NAME_QUERY_KEY,
   TIMEZONE_QUERY_KEY,
@@ -157,16 +158,20 @@ function SettingsPage() {
     );
   }, []);
 
+  // Shares the ["me"] query with the root gates and useIsManager, so navigating
+  // here doesn't re-request /api/me.
+  const { data: me } = useQuery({
+    queryKey: ME_QUERY_KEY,
+    queryFn: fetchMe,
+    staleTime: Infinity,
+    retry: false,
+  });
+
   useEffect(() => {
-    fetch("/api/me", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((me) => {
-        setIsManager(Boolean(me?.isManager));
-        setUserEmail(me?.email ?? "");
-        setUserName(me?.name ?? "");
-      })
-      .catch(() => setIsManager(false));
-  }, []);
+    setIsManager(Boolean(me?.isManager));
+    setUserEmail(me?.email ?? "");
+    setUserName(me?.name ?? "");
+  }, [me]);
 
   useEffect(() => {
     if (showAdvancedSettings) {

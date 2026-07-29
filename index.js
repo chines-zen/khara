@@ -357,7 +357,12 @@ app.get('/api/opportunities/my-sc-opps', authenticateWithPomerium, async (req, r
     // if a stale preference value has it set (e.g. is_manager was revoked).
     if (!req.user.is_manager) {
       scope.scEmails = [];
+      scope.scUserIds = [];
     }
+
+    // The user's own USER_ID, cached at login (see middleware/auth.js). Lets the
+    // sync below skip the USER_HISTORY identity lookup on a cache miss.
+    scope.sfdcUserId = req.user.sfdc_user_id ?? null;
 
     // Managers rarely own opportunities under their own name, so a sync scoped
     // to their own SC identity would be empty/meaningless. Require them to
@@ -427,12 +432,18 @@ app.get('/api/activities', authenticateWithPomerium, async (req, res) => {
     // Sales Engineers scoping is manager-only - strip it for anyone else even
     // if a stale preference value has it set (e.g. is_manager was revoked).
     const scEmails = req.user.is_manager ? scope.scEmails : [];
+    const scUserIds = req.user.is_manager ? scope.scUserIds : [];
 
     // ?force=true (NavBar "Refresh Data") bypasses the TTL gate and resyncs now -
     // incrementally for SEs already synced, full-backfill for newly-scoped ones.
     const force = req.query.force === 'true';
 
-    const result = await getActivities(req.user.email, { scEmails, force });
+    const result = await getActivities(req.user.email, {
+      scEmails,
+      scUserIds,
+      sfdcUserId: req.user.sfdc_user_id ?? null,
+      force,
+    });
 
     res.json({
       activities: result.activities,
