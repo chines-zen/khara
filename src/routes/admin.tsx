@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AppNav } from "@/components/opportunities/AppNav";
 
 async function fetchHealth() {
   const response = await fetch("/api/health", { credentials: "include" });
@@ -115,7 +114,6 @@ function AdminPage() {
 
   return (
     <div className="min-h-screen bg-zd-bg font-sans text-zd-dark">
-      <AppNav />
       <main className="max-w-[1440px] mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Diagnostics</h1>
@@ -132,16 +130,20 @@ function AdminPage() {
           ) : (
             <div className="space-y-3">
               <div className="text-sm">
-                <span className="text-zd-teal/60 font-semibold">Last Data Sync:</span>{" "}
+                <span className="text-zd-teal/60 font-semibold">
+                  Last Data Sync:
+                </span>{" "}
                 <code className="bg-zd-bg px-2 py-1 rounded">
                   {health?.appUpdatedAt
                     ? new Date(health.appUpdatedAt).toLocaleString()
                     : "Never synced"}
                 </code>
                 <p className="mt-2 text-xs text-zd-teal/60">
-                  <i>Note: This reflects the last time the app logged into Snowflake
-                  and doesn't reflect when SFDC data was replicated into
-                  Snowflake.</i>
+                  <i>
+                    Note: This reflects the last time the app logged into
+                    Snowflake and doesn't reflect when SFDC data was replicated
+                    into Snowflake.
+                  </i>
                 </p>
               </div>
 
@@ -169,11 +171,17 @@ function AdminPage() {
                     )}
                   </dd>
 
-                  <dt className="text-zd-teal/60 font-semibold">ARR Threshold:</dt>
-                  <dd className="text-zd-teal/60">{formatArr(scope?.arrThreshold)}</dd>
+                  <dt className="text-zd-teal/60 font-semibold">
+                    ARR Threshold:
+                  </dt>
+                  <dd className="text-zd-teal/60">
+                    {formatArr(scope?.arrThreshold)}
+                  </dd>
 
                   <dt className="text-zd-teal/60 font-semibold">Close Date:</dt>
-                  <dd className="text-zd-teal/60">{scope ? formatCloseWindow(scope) : "—"}</dd>
+                  <dd className="text-zd-teal/60">
+                    {scope ? formatCloseWindow(scope) : "—"}
+                  </dd>
                 </dl>
               </div>
             </div>

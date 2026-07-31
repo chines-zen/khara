@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PunchListRouteImport } from './routes/punch-list'
 import { Route as OpportunitiesRouteImport } from './routes/opportunities'
+import { Route as HelpRouteImport } from './routes/help'
+import { Route as BlindSpotsRouteImport } from './routes/blind-spots'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as ActivitiesRouteImport } from './routes/activities'
 import { Route as IndexRouteImport } from './routes/index'
@@ -29,6 +31,16 @@ const PunchListRoute = PunchListRouteImport.update({
 const OpportunitiesRoute = OpportunitiesRouteImport.update({
   id: '/opportunities',
   path: '/opportunities',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlindSpotsRoute = BlindSpotsRouteImport.update({
+  id: '/blind-spots',
+  path: '/blind-spots',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -51,6 +63,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activities': typeof ActivitiesRoute
   '/admin': typeof AdminRoute
+  '/blind-spots': typeof BlindSpotsRoute
+  '/help': typeof HelpRoute
   '/opportunities': typeof OpportunitiesRoute
   '/punch-list': typeof PunchListRoute
   '/settings': typeof SettingsRoute
@@ -59,6 +73,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activities': typeof ActivitiesRoute
   '/admin': typeof AdminRoute
+  '/blind-spots': typeof BlindSpotsRoute
+  '/help': typeof HelpRoute
   '/opportunities': typeof OpportunitiesRoute
   '/punch-list': typeof PunchListRoute
   '/settings': typeof SettingsRoute
@@ -68,6 +84,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/activities': typeof ActivitiesRoute
   '/admin': typeof AdminRoute
+  '/blind-spots': typeof BlindSpotsRoute
+  '/help': typeof HelpRoute
   '/opportunities': typeof OpportunitiesRoute
   '/punch-list': typeof PunchListRoute
   '/settings': typeof SettingsRoute
@@ -78,6 +96,8 @@ export interface FileRouteTypes {
     | '/'
     | '/activities'
     | '/admin'
+    | '/blind-spots'
+    | '/help'
     | '/opportunities'
     | '/punch-list'
     | '/settings'
@@ -86,6 +106,8 @@ export interface FileRouteTypes {
     | '/'
     | '/activities'
     | '/admin'
+    | '/blind-spots'
+    | '/help'
     | '/opportunities'
     | '/punch-list'
     | '/settings'
@@ -94,6 +116,8 @@ export interface FileRouteTypes {
     | '/'
     | '/activities'
     | '/admin'
+    | '/blind-spots'
+    | '/help'
     | '/opportunities'
     | '/punch-list'
     | '/settings'
@@ -103,6 +127,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActivitiesRoute: typeof ActivitiesRoute
   AdminRoute: typeof AdminRoute
+  BlindSpotsRoute: typeof BlindSpotsRoute
+  HelpRoute: typeof HelpRoute
   OpportunitiesRoute: typeof OpportunitiesRoute
   PunchListRoute: typeof PunchListRoute
   SettingsRoute: typeof SettingsRoute
@@ -129,6 +155,20 @@ declare module '@tanstack/react-router' {
       path: '/opportunities'
       fullPath: '/opportunities'
       preLoaderRoute: typeof OpportunitiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blind-spots': {
+      id: '/blind-spots'
+      path: '/blind-spots'
+      fullPath: '/blind-spots'
+      preLoaderRoute: typeof BlindSpotsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -159,6 +199,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivitiesRoute: ActivitiesRoute,
   AdminRoute: AdminRoute,
+  BlindSpotsRoute: BlindSpotsRoute,
+  HelpRoute: HelpRoute,
   OpportunitiesRoute: OpportunitiesRoute,
   PunchListRoute: PunchListRoute,
   SettingsRoute: SettingsRoute,

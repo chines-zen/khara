@@ -21,7 +21,6 @@ import {
 } from "recharts";
 import { type Opportunity } from "@/lib/opportunities";
 import { KpiCard } from "@/components/opportunities/KpiCard";
-import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { useIsManager } from "@/hooks/use-is-manager";
 import { sfRecordUrl } from "@/lib/sfdc";
@@ -283,7 +282,6 @@ function DashboardPage() {
   if (isError) {
     return (
       <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 min-h-screen">
-        <AppNav />
         <main className="p-6">
           <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
             Failed to load opportunities: {opportunitiesError.message}
@@ -299,7 +297,6 @@ function DashboardPage() {
 
   return (
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
-      <AppNav />
       <main className="p-6 space-y-6">
         <DashboardFilterBar
           filters={filters}

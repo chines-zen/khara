@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
 
-import { AppNav } from "@/components/opportunities/AppNav";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
@@ -26,7 +25,8 @@ export const Route = createFileRoute("/punch-list")({
       { title: "Punch List — KHARA" },
       {
         name: "description",
-        content: "Opportunities that need attention based on your hygiene criteria.",
+        content:
+          "Opportunities that need attention based on your hygiene criteria.",
       },
     ],
   }),
@@ -34,17 +34,27 @@ export const Route = createFileRoute("/punch-list")({
 });
 
 function PunchListPage() {
-  const [settings, setSettings] = useState<PunchListSettings>(DEFAULT_PUNCH_LIST_SETTINGS);
-  const [seFilters, setSeFilters] = useState<PunchListFilters>(DEFAULT_PUNCH_LIST_FILTERS);
+  const [settings, setSettings] = useState<PunchListSettings>(
+    DEFAULT_PUNCH_LIST_SETTINGS,
+  );
+  const [seFilters, setSeFilters] = useState<PunchListFilters>(
+    DEFAULT_PUNCH_LIST_FILTERS,
+  );
   const isManager = useIsManager();
 
   useEffect(() => {
-    fetchUserPreference<PunchListSettings>("punchListSettings").then((saved) => {
-      if (saved) setSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
-    });
+    fetchUserPreference<PunchListSettings>("punchListSettings").then(
+      (saved) => {
+        if (saved) setSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
+      },
+    );
   }, []);
 
-  const { data: loaderOpportunities, isError, error: opportunitiesError } = useQuery({
+  const {
+    data: loaderOpportunities,
+    isError,
+    error: opportunitiesError,
+  } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
     retry: false,
@@ -59,7 +69,9 @@ function PunchListPage() {
   const scopedOpportunities = useMemo(
     () =>
       seFilters.ses.length > 0
-        ? opportunities.filter((o) => o.nameOfSc && seFilters.ses.includes(o.nameOfSc))
+        ? opportunities.filter(
+            (o) => o.nameOfSc && seFilters.ses.includes(o.nameOfSc),
+          )
         : opportunities,
     [opportunities, seFilters],
   );
@@ -78,18 +90,20 @@ function PunchListPage() {
   const handleOpenAll = () => {
     // Stage the full list before opening tabs so every spawned tab finds its data.
     notifyExtension(rows.map((r) => ({ oppId: r.opp.id, reasons: r.reasons })));
-    rows.forEach((row) => window.open(sfRecordUrl(row.opp.id), "_blank", "noopener"));
+    rows.forEach((row) =>
+      window.open(sfRecordUrl(row.opp.id), "_blank", "noopener"),
+    );
   };
 
   if (isError) {
     return (
       <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 min-h-screen">
-        <AppNav />
         <main className="p-6">
           <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
             Failed to load opportunities: {opportunitiesError.message}
             <div className="mt-1 text-red-500/70">
-              Try refreshing. If this persists, the Snowflake connection may need to be restarted.
+              Try refreshing. If this persists, the Snowflake connection may
+              need to be restarted.
             </div>
           </div>
         </main>
@@ -99,18 +113,9 @@ function PunchListPage() {
 
   return (
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
-      <AppNav />
       <main className="p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold text-zd-dark">Punch List</h1>
-          <button
-            type="button"
-            onClick={handleOpenAll}
-            disabled={rows.length === 0}
-            className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Open All in SFDC
-          </button>
         </div>
 
         <PunchListFilterBar
@@ -128,19 +133,34 @@ function PunchListPage() {
                   <th className="px-4 py-2">Opp</th>
                   {isManager && <th className="px-4 py-2">SE</th>}
                   <th className="px-4 py-2">To Do</th>
-                  <th className="px-4 py-2"></th>
+                  <th className="px-4 py-2 text-right">
+                    <button
+                      type="button"
+                      onClick={handleOpenAll}
+                      disabled={rows.length === 0}
+                      className="w-[128px] whitespace-nowrap rounded bg-zd-green px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zd-dark transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Open All in SFDC
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zd-border">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={isManager ? 4 : 3} className="px-4 py-8 text-center text-zd-teal/50">
+                    <td
+                      colSpan={isManager ? 4 : 3}
+                      className="px-4 py-8 text-center text-zd-teal/50"
+                    >
                       No opportunities match your Punch List criteria.
                     </td>
                   </tr>
                 ) : (
                   rows.map(({ opp, reasons }) => (
-                    <tr key={opp.id} className="hover:bg-zd-bg/60 transition-colors">
+                    <tr
+                      key={opp.id}
+                      className="hover:bg-zd-bg/60 transition-colors"
+                    >
                       <td className="px-4 py-2 font-medium">
                         <Link
                           to="/opportunities"
@@ -175,7 +195,7 @@ function PunchListPage() {
                           onClick={() =>
                             notifyExtension([{ oppId: opp.id, reasons }])
                           }
-                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-zd-bg text-zd-teal/80 border border-zd-border rounded hover:text-zd-dark hover:border-zd-teal/40 transition-colors"
+                          className="inline-flex w-[128px] items-center justify-center gap-1 whitespace-nowrap rounded border border-zd-border bg-zd-bg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zd-teal/80 transition-colors hover:border-zd-teal/40 hover:text-zd-dark"
                         >
                           <ExternalLink className="size-3" />
                           Open in SFDC

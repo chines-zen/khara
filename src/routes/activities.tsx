@@ -23,7 +23,6 @@ import {
   Legend,
 } from "recharts";
 
-import { AppNav } from "@/components/opportunities/AppNav";
 import { KpiCard } from "@/components/opportunities/KpiCard";
 import { fetchActivities, type Activity } from "@/lib/api/activities";
 import { useIsManager } from "@/hooks/use-is-manager";
@@ -353,7 +352,6 @@ function ActivitiesPage() {
   if (isLoading) {
     return (
       <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 min-h-screen">
-        <AppNav />
         <main className="p-6">
           <div className="bg-white border border-zd-border rounded p-12 flex flex-col items-center justify-center gap-3 text-center">
             <Loader2 className="size-6 text-zd-teal animate-spin" />
@@ -373,7 +371,6 @@ function ActivitiesPage() {
   if (isError) {
     return (
       <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 min-h-screen">
-        <AppNav />
         <main className="p-6">
           <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
             Failed to load activities: {error.message}
@@ -389,7 +386,6 @@ function ActivitiesPage() {
 
   return (
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
-      <AppNav />
       <main className="p-6 space-y-6">
         <ActivitiesFilterBar
           filters={filters}

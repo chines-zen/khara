@@ -2,7 +2,6 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AppNav } from "@/components/opportunities/AppNav";
 import { useDoNotClickActive } from "@/hooks/use-do-not-click-active";
 import { ME_QUERY_KEY, fetchMe } from "@/lib/api/me";
 import {
@@ -574,7 +573,6 @@ function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
-      <AppNav />
       <main className="max-w-[720px] mx-auto p-6 space-y-6">
         <h1 className="text-lg font-semibold text-zd-dark">Settings</h1>
 

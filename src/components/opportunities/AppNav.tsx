@@ -1,6 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Settings, RefreshCw, AlertTriangle } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import {
+  BarChart3,
+  CircleHelp,
+  Clock3,
+  DollarSign,
+  FilePenLine,
+  Glasses,
+  RefreshCw,
+  Settings,
+  AlertTriangle,
+} from "lucide-react";
 import {
   useQuery,
   useQueryClient,
@@ -21,6 +37,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from "@/components/ui/sidebar";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
 import { useActivitiesEnabled } from "@/hooks/use-activities-enabled";
@@ -51,8 +81,7 @@ function formatLastRefreshed(iso: string | undefined, timezone: string) {
   return `${get("month")}/${get("day")} ${get("hour")}:${get("minute")} ${get("dayPeriod").toUpperCase()}`;
 }
 
-export function AppNav() {
-  const linkBase = "px-[15px] py-[5px] text-[15px] font-medium";
+export function AppNav({ children }: { children?: ReactNode }) {
   const preferredName = usePreferredName();
   const timezone = useTimezone();
   const activitiesEnabled = useActivitiesEnabled();
@@ -151,54 +180,215 @@ export function AppNav() {
   });
 
   return (
-    <nav className="h-[60px] bg-zd-dark flex items-center px-5 justify-between sticky top-0 z-50">
-      <div className="flex items-center gap-[30px]">
-        <div className="h-[30px] px-[7.5px] bg-zd-green rounded-sm flex items-center justify-center font-bold text-zd-dark text-[11px] italic tracking-tight">
-          KHARA
-        </div>
-        <div className="flex gap-[5px]">
-          <Link
-            to="/"
-            activeOptions={{ exact: true }}
-            className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{
-              className: `${linkBase} text-white border-b-2 border-zd-green`,
-            }}
-          >
-            Dashboard
-          </Link>
-          <Link
-            to="/opportunities"
-            className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{
-              className: `${linkBase} text-white border-b-2 border-zd-green`,
-            }}
-          >
-            Opportunities
-          </Link>
-          <Link
-            to="/punch-list"
-            className={`${linkBase} text-white/70 hover:text-white`}
-            activeProps={{
-              className: `${linkBase} text-white border-b-2 border-zd-green`,
-            }}
-          >
-            Punch List{punchListCount > 0 ? ` (${punchListCount})` : ""}
-          </Link>
-          {activitiesEnabled && (
-            <Link
-              to="/activities"
-              className={`${linkBase} text-white/70 hover:text-white`}
-              activeProps={{
-                className: `${linkBase} text-white border-b-2 border-zd-green`,
-              }}
-            >
-              Activities
-            </Link>
-          )}
-        </div>
+    <SidebarProvider
+      defaultOpen
+      style={{ "--sidebar-width": "10rem" } as CSSProperties}
+    >
+      <AppSidebar punchListCount={punchListCount} />
+      <div className="flex min-h-svh min-w-0 flex-1 flex-col bg-zd-bg">
+        <AppHeader
+          preferredName={preferredName}
+          lastRefreshed={lastRefreshed}
+          syncPending={syncPending}
+          isRefreshing={isRefreshing}
+          onRefresh={() => handleRefresh()}
+        />
+        <div className="min-w-0 flex-1">{children}</div>
       </div>
-      <div className="flex items-center gap-[15px]">
+    </SidebarProvider>
+  );
+}
+
+function AppSidebar({ punchListCount }: { punchListCount: number }) {
+  const { state } = useSidebar();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+
+  return (
+    <Sidebar
+      collapsible="icon"
+      className="border-zd-dark/20 bg-zd-dark text-white [&_[data-sidebar=menu-button]]:text-white/80 [&_[data-sidebar=menu-button]:hover]:text-[#324C4C] [&_[data-sidebar=menu-button][data-active=true]]:bg-white/10 [&_[data-sidebar=menu-button][data-active=true]]:text-zd-green [&_[data-sidebar=menu-sub-button]]:text-white/70 [&_[data-sidebar=menu-sub-button][data-active=true]]:bg-white/10 [&_[data-sidebar=menu-sub-button][data-active=true]]:text-zd-green [&_[data-sidebar=sidebar]]:bg-zd-dark [&_[data-sidebar=sidebar]]:text-white"
+    >
+      <SidebarHeader className="h-[60px] shrink-0 justify-center border-b border-white/10 p-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="lg"
+              className="!p-0 justify-start hover:bg-white/10 hover:text-white group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!overflow-visible"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-zd-green text-[16px] font-bold italic tracking-tight text-zd-dark">
+                K
+              </span>
+              <span className="min-w-0 whitespace-nowrap text-sm font-bold tracking-wide text-white group-data-[collapsible=icon]:hidden">
+                KHARA
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/"}
+                  tooltip="Metrics"
+                >
+                  <Link to="/" activeOptions={{ exact: true }}>
+                    <BarChart3 />
+                    <span>Metrics</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/opportunities"}
+                  tooltip="Opportunities"
+                >
+                  <Link to="/opportunities">
+                    <DollarSign />
+                    <span>Opportunities</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/punch-list"}
+                  tooltip="Punch List"
+                >
+                  <Link to="/punch-list">
+                    <FilePenLine />
+                    <span className="whitespace-nowrap">
+                      Punch List
+                      {punchListCount > 0 ? ` (${punchListCount})` : ""}
+                    </span>
+                    {punchListCount > 0 && state === "collapsed" && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute bottom-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-zd-dark"
+                      />
+                    )}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/blind-spots"}
+                  tooltip="Blind Spots"
+                >
+                  <Link to="/blind-spots">
+                    <Glasses />
+                    <span>Blind Spots</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/activities"}
+                  tooltip="Activities"
+                >
+                  <Link to="/activities">
+                    <Clock3 />
+                    <span>Activities</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+
+      <SidebarFooter className="gap-2 border-t border-white/10 p-3">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === "/help"}
+              tooltip="Help"
+            >
+              <Link to="/help">
+                <CircleHelp />
+                <span>Help</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === "/settings"}
+              tooltip="Settings"
+            >
+              <Link to="/settings">
+                <Settings />
+                <span>Settings</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarTrigger
+              className="h-8 w-full justify-start gap-2 overflow-hidden rounded-md px-2 text-white/70 hover:bg-white hover:text-zd-dark group-data-[collapsible=icon]:!w-8"
+              aria-label="Expand or collapse navigation"
+            >
+              <CollapseLabel />
+            </SidebarTrigger>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+    </Sidebar>
+  );
+}
+
+function CollapseLabel() {
+  return <span>Collapse</span>;
+}
+
+function AppHeader({
+  preferredName,
+  lastRefreshed,
+  syncPending,
+  isRefreshing,
+  onRefresh,
+}: {
+  preferredName: string;
+  lastRefreshed: string;
+  syncPending: boolean;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const title =
+    {
+      "/": "Metrics",
+      "/opportunities": "Opportunities",
+      "/punch-list": "Punch List",
+      "/blind-spots": "Blind Spots",
+      "/activities": "Activities",
+      "/help": "Help",
+      "/settings": "Settings",
+      "/admin": "Diagnostics",
+    }[pathname] ?? "KHARA";
+
+  return (
+    <header className="sticky top-0 z-40 flex h-[60px] items-center justify-between border-b border-zd-border bg-zd-bg px-4 md:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <SidebarTrigger className="md:hidden" aria-label="Open navigation" />
+        <h1 className="truncate text-lg font-semibold text-zd-dark">{title}</h1>
+      </div>
+      <div className="flex items-center gap-3 md:gap-[15px]">
         <div className="flex items-center gap-[8px]">
           {syncPending && (
             <TooltipProvider delayDuration={0}>
@@ -218,7 +408,7 @@ export function AppNav() {
             </TooltipProvider>
           )}
           <span
-            className="text-white/50 text-[12px] font-mono leading-tight flex flex-col items-end"
+            className="flex flex-col items-end font-mono text-[12px] leading-tight text-zd-teal/70"
             title="Last refreshed"
           >
             <span>Last Data Sync</span>
@@ -227,28 +417,20 @@ export function AppNav() {
         </div>
         <button
           type="button"
-          onClick={() => handleRefresh()}
+          onClick={onRefresh}
           disabled={isRefreshing}
           aria-label="Refresh Data"
           title="Refresh Data"
-          className="text-white/70 hover:text-white transition-colors disabled:opacity-50"
+          className="text-zd-teal/70 transition-colors hover:text-zd-dark disabled:opacity-50"
         >
           <RefreshCw
             className={`size-5 ${isRefreshing ? "animate-spin" : ""}`}
           />
         </button>
-        <Link
-          to="/settings"
-          aria-label="Settings"
-          className="text-white/70 hover:text-white transition-colors"
-          activeProps={{ className: "text-zd-green" }}
-        >
-          <Settings className="size-5" />
-        </Link>
-        <span className="text-white/80 text-[15px] font-medium">
+        <span className="text-[15px] font-medium text-zd-dark/80">
           {preferredName ? `Hi, ${preferredName}!` : "Hi there!"}
         </span>
       </div>
-    </nav>
+    </header>
   );
 }

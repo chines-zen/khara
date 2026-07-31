@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 import { type Opportunity } from "@/lib/opportunities";
 import { OpportunityListItem } from "@/components/opportunities/OpportunityListItem";
 import { OpportunityDetail } from "@/components/opportunities/OpportunityDetail";
-import { AppNav } from "@/components/opportunities/AppNav";
 import {
   fetchUserPreference,
   saveUserPreference,
@@ -304,7 +303,6 @@ function OpportunitiesPage() {
   if (scNotFoundError) {
     return (
       <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
-        <AppNav />
         <main className="p-6">
           <div className="bg-white border border-zd-border rounded p-8 text-center text-sm text-zd-teal/70">
             {scNotFoundError.message}
@@ -317,7 +315,6 @@ function OpportunitiesPage() {
   if (fetchError) {
     return (
       <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
-        <AppNav />
         <main className="p-6">
           <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
             Failed to load opportunities: {fetchError.message}
@@ -332,7 +329,6 @@ function OpportunitiesPage() {
 
   return (
     <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20 flex flex-col">
-      <AppNav />
       <main className="p-6 space-y-6 flex-1 flex flex-col min-h-0">
         {showDisclaimer && (
           <div className="flex items-start justify-between gap-3 bg-zd-green/10 border border-zd-green/30 text-zd-dark rounded px-4 py-2.5 text-sm">
