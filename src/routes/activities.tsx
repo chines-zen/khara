@@ -115,6 +115,22 @@ const MONTH_LABEL = (yyyymm: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "2-digit" });
 };
 
+const WEEK_LABEL = (yyyyMmDd: string) => {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  return `${month}/${String(day).padStart(2, "0")}`;
+};
+
+// Group weeks by their Sunday start date, matching the app's US locale.
+function weekStartKey(activityDate: string): string {
+  const [year, month, day] = activityDate.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() - date.getDay());
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // Format a "YYYYQQ" fiscal key (e.g. "2026Q2") as "FYYY QQ" (e.g. "FY26 Q2"),
 // where the 4-digit year is the fiscal year's START (Feb) year.
 const QUARTER_LABEL = (yyyyq: string) =>
@@ -133,7 +149,7 @@ function fiscalQuarterKey(yyyymm: string): string {
   return `${fyStartYear}Q${quarter}`;
 }
 
-type HoursGroupBy = "month" | "quarter";
+type HoursGroupBy = "week" | "month" | "quarter";
 
 function buildHoursChartData(activities: Activity[], groupBy: HoursGroupBy) {
   const totals = new Map<string, number>();
@@ -141,11 +157,15 @@ function buildHoursChartData(activities: Activity[], groupBy: HoursGroupBy) {
     // Always derive the quarter from the calendar month so the grouping
     // follows the company fiscal calendar, not Snowflake's calendar quarter.
     const key =
-      groupBy === "month"
-        ? a.activityYearMonth
-        : a.activityYearMonth
-          ? fiscalQuarterKey(a.activityYearMonth)
-          : null;
+      groupBy === "week"
+        ? a.activityDate
+          ? weekStartKey(a.activityDate)
+          : null
+        : groupBy === "month"
+          ? a.activityYearMonth
+          : a.activityYearMonth
+            ? fiscalQuarterKey(a.activityYearMonth)
+            : null;
     if (!key) return;
     totals.set(key, (totals.get(key) ?? 0) + a.durationHours);
   });
@@ -153,7 +173,12 @@ function buildHoursChartData(activities: Activity[], groupBy: HoursGroupBy) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, hours]) => ({
       key,
-      label: groupBy === "month" ? MONTH_LABEL(key) : QUARTER_LABEL(key),
+      label:
+        groupBy === "week"
+          ? WEEK_LABEL(key)
+          : groupBy === "month"
+            ? MONTH_LABEL(key)
+            : QUARTER_LABEL(key),
       hours: Math.round(hours * 10) / 10,
     }));
 }
@@ -427,12 +452,16 @@ function ActivitiesPage() {
                       type="button"
                       className="inline-flex items-center gap-1 text-xs font-semibold text-zd-teal hover:text-zd-dark transition-colors"
                     >
-                      {hoursGroupBy === "month" ? "Month" : "Quarter"}
+                      {hoursGroupBy === "week"
+                        ? "Week"
+                        : hoursGroupBy === "month"
+                          ? "Month"
+                          : "Quarter"}
                       <ChevronDown className="size-3" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-32 p-1">
-                    {(["month", "quarter"] as const).map((opt) => {
+                    {(["week", "month", "quarter"] as const).map((opt) => {
                       const active = opt === hoursGroupBy;
                       return (
                         <button
@@ -448,7 +477,13 @@ function ActivitiesPage() {
                               : "text-zd-teal/80"
                           }`}
                         >
-                          <span>{opt === "month" ? "Month" : "Quarter"}</span>
+                          <span>
+                            {opt === "week"
+                              ? "Week"
+                              : opt === "month"
+                                ? "Month"
+                                : "Quarter"}
+                          </span>
                           {active && (
                             <Check className="size-3.5 text-zd-green" />
                           )}
