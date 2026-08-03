@@ -16,7 +16,7 @@ function HelpPage() {
       <div className="rounded border border-zd-border bg-white p-8 text-center">
         <h2 className="text-sm font-semibold text-zd-dark">Help</h2>
         <p className="mt-2 text-sm text-zd-teal/70">
-          Help resources are coming soon.
+          Contact @chines on slack with questions.
         </p>
       </div>
     </main>
