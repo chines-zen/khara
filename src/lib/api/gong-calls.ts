@@ -9,6 +9,7 @@ export type GongCall = {
   keyPoints: unknown[];
   attendees: GongAttendee[];
   gongUrl: string;
+  isEnriched: boolean;
   syncedAt: string | null;
 };
 

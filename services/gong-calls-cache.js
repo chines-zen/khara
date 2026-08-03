@@ -6,19 +6,7 @@ const CACHE_TTL_HOURS = 24;
 const CACHE_VERSION = 3;
 
 export async function getGongCallsForOpportunity(opportunityId, userEmail) {
-  const stale = await getStaleOpportunityIds([opportunityId]);
-  if (stale.length > 0) {
-    console.log(
-      `[Gong Cache] MISS - syncing opp ${opportunityId} from Snowflake`,
-    );
-    await syncOpportunitiesFromSnowflake(stale, userEmail);
-  } else {
-    console.log(`[Gong Cache] HIT - opp ${opportunityId} fresh`);
-  }
-
-  const calls = await getCachedCalls([opportunityId]);
-  const cachedAt = await getSyncTime(opportunityId);
-  return { calls, cached: stale.length === 0, cachedAt };
+  return syncGongCallsForOpportunities([opportunityId], userEmail);
 }
 
 export async function getGongCalls(userId, userEmail, scope = {}) {
@@ -29,16 +17,50 @@ export async function getGongCalls(userId, userEmail, scope = {}) {
   const opportunityIds = opportunities
     .map((opportunity) => opportunity.id)
     .filter(Boolean);
-  const staleIds = scope.force
-    ? opportunityIds
-    : await getStaleOpportunityIds(opportunityIds);
-  if (staleIds.length > 0)
-    await syncOpportunitiesFromSnowflake(staleIds, userEmail);
+  return syncGongCallsForOpportunities(opportunityIds, userEmail, {
+    force: scope.force,
+    opportunities,
+  });
+}
+
+/**
+ * Sync Gong calls for an already-materialized opportunity scope. Supplying the
+ * just-refreshed opportunities makes the attendee account-name enrichment use
+ * that same snapshot rather than whichever user's JSON cache was newest.
+ *
+ * @param {string[]} opportunityIds
+ * @param {string} userEmail
+ * @param {{ force?: boolean, opportunities?: Array<{ id?: string, account?: string }> }} [options]
+ */
+export async function syncGongCallsForOpportunities(
+  opportunityIds,
+  userEmail,
+  options = {},
+) {
+  const ids = [...new Set(opportunityIds.filter(Boolean))];
+  if (ids.length === 0) {
+    return { calls: [], cached: true, cachedAt: null, syncedOpportunityCount: 0 };
+  }
+
+  const idsToSync = options.force ? ids : await getStaleOpportunityIds(ids);
+  if (idsToSync.length > 0) {
+    console.log(
+      `[Gong Cache] ${options.force ? 'FORCE' : 'MISS'} - syncing ${idsToSync.length} opp(s) from Snowflake`,
+    );
+    await syncOpportunitiesFromSnowflake(
+      idsToSync,
+      userEmail,
+      getProvidedAccountNames(options.opportunities, idsToSync),
+    );
+  } else {
+    console.log(`[Gong Cache] HIT - all ${ids.length} opp(s) fresh`);
+  }
 
   return {
-    calls: await getCachedCalls(opportunityIds),
-    cached: staleIds.length === 0,
-    cachedAt: await getOldestSyncTime(opportunityIds),
+    calls: await getCachedCalls(ids),
+    cached: idsToSync.length === 0,
+    cachedAt: await getOldestSyncTime(ids),
+    syncedOpportunityCount: idsToSync.length,
   };
 }
 
@@ -55,13 +77,20 @@ async function getStaleOpportunityIds(opportunityIds) {
   return opportunityIds.filter((id) => !freshIds.has(id));
 }
 
-async function syncOpportunitiesFromSnowflake(opportunityIds, userEmail) {
+async function syncOpportunitiesFromSnowflake(
+  opportunityIds,
+  userEmail,
+  providedAccountNames = new Map(),
+) {
   const rows = await executeQuery(
     buildGongCallsQuery(opportunityIds),
     undefined,
     userEmail,
   );
-  const accountNames = await getOpportunityAccountNames(opportunityIds);
+  const accountNames = await getOpportunityAccountNames(
+    opportunityIds,
+    providedAccountNames,
+  );
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -129,8 +158,31 @@ async function syncOpportunitiesFromSnowflake(opportunityIds, userEmail) {
   }
 }
 
-async function getOpportunityAccountNames(opportunityIds) {
+function getProvidedAccountNames(opportunities = [], opportunityIds) {
+  const requestedIds = new Set(opportunityIds);
+  const accountNames = new Map();
+  for (const opportunity of opportunities) {
+    if (
+      opportunity?.id &&
+      requestedIds.has(opportunity.id) &&
+      opportunity.account
+    ) {
+      accountNames.set(opportunity.id, opportunity.account);
+    }
+  }
+  return accountNames;
+}
+
+async function getOpportunityAccountNames(
+  opportunityIds,
+  providedAccountNames = new Map(),
+) {
   if (opportunityIds.length === 0) return new Map();
+
+  const accountNames = new Map(providedAccountNames);
+  const missingIds = opportunityIds.filter((id) => !accountNames.has(id));
+  if (missingIds.length === 0) return accountNames;
+
   const result = await pool.query(
     `SELECT opportunity->>'id' AS opportunity_id, opportunity->>'account' AS account_name
      FROM sc_opportunities_cache,
@@ -138,9 +190,8 @@ async function getOpportunityAccountNames(opportunityIds) {
      WHERE opportunity->>'id' = ANY($1)
        AND NULLIF(opportunity->>'account', '') IS NOT NULL
      ORDER BY cached_at DESC`,
-    [opportunityIds],
+    [missingIds],
   );
-  const accountNames = new Map();
   for (const row of result.rows) {
     if (!accountNames.has(row.opportunity_id)) {
       accountNames.set(row.opportunity_id, row.account_name);
@@ -178,14 +229,6 @@ async function getCachedCalls(opportunityIds) {
   return result.rows.map(transformCall);
 }
 
-async function getSyncTime(opportunityId) {
-  const result = await pool.query(
-    "SELECT last_synced_at FROM gong_sync_meta WHERE opportunity_id = $1",
-    [opportunityId],
-  );
-  return result.rows[0]?.last_synced_at ?? null;
-}
-
 async function getOldestSyncTime(opportunityIds) {
   if (opportunityIds.length === 0) return null;
   const result = await pool.query(
@@ -211,6 +254,7 @@ function transformCall(row) {
     keyPoints: Array.isArray(row.key_points) ? row.key_points : [],
     attendees: Array.isArray(row.attendees) ? row.attendees : [],
     gongUrl: row.gong_url,
+    isEnriched: Boolean(row.call_id && row.gong_url),
     syncedAt: row.synced_at ? row.synced_at.toISOString() : null,
   };
 }

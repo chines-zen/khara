@@ -37,6 +37,7 @@ import {
 } from "./services/hidden-opportunities.js";
 import {
   getScOpportunities,
+  hasFreshScOpportunitiesCache,
   invalidateScCache,
   cleanupExpiredScCache,
   getLastScCacheSync,
@@ -46,7 +47,11 @@ import {
   invalidateActivitiesCache,
 } from "./services/activities-cache.js";
 import { getDispassionateReviewsForOpportunity } from "./services/dispassionate-reviews-cache.js";
-import { getGongCallsForOpportunity } from "./services/gong-calls-cache.js";
+import {
+  getGongCallsForOpportunity,
+  invalidateGongCallsCache,
+} from "./services/gong-calls-cache.js";
+import { syncScopedSnowflakeData } from "./services/snowflake-data-sync.js";
 import { resolveScUserId } from "./services/sc-lookup.js";
 import { getEffectiveOppScope } from "./services/opp-scope.js";
 import { setEnvVar } from "./services/env-writer.js";
@@ -425,13 +430,30 @@ app.get(
         });
       }
 
-      // Get opportunities (with caching)
+      // A fresh opportunity blob can be served immediately. When it has
+      // expired, do not silently refresh Opportunities by themselves: run the
+      // same unified sync used by the manual Refresh button so Activities,
+      // D-Score reviews, and Gong calls advance to one completed scope too.
+      const wasCached = await hasFreshScOpportunitiesCache(userId);
+      if (!wasCached) {
+        await syncScopedSnowflakeData({
+          userId,
+          userEmail: scEmail,
+          scope,
+          activityScope: {
+            scEmails: scope.scEmails,
+            scUserIds: scope.scUserIds,
+            sfdcUserId: scope.sfdcUserId,
+          },
+        });
+      }
+
       const result = await getScOpportunities(userId, scEmail, scope);
 
       res.json({
         opportunities: result.opportunities,
         metadata: {
-          cached: result.cached,
+          cached: wasCached && result.cached,
           cachedAt: result.cachedAt,
           expiresAt: result.expiresAt,
           count: result.opportunities.length,
@@ -478,6 +500,83 @@ app.delete(
     }
   },
 );
+
+// DELETE /api/gong-calls/cache - Force the next Gong request to resync all
+// opportunities from Snowflake instead of using the 24h per-opportunity TTL.
+app.delete(
+  "/api/gong-calls/cache",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (!databaseConnected) {
+        return res
+          .status(503)
+          .json({ error: "Database connection not established" });
+      }
+
+      await invalidateGongCallsCache();
+      res.json({ success: true, message: "Gong calls cache cleared" });
+    } catch (error) {
+      console.error("Error clearing Gong calls cache:", error);
+      res
+        .status(500)
+        .json({
+          error: "Failed to clear Gong calls cache",
+          details: error.message,
+        });
+    }
+  },
+);
+
+// POST /api/data-sync - Refresh all scoped Snowflake domains as one completed
+// run. The response is sent only after Opportunities, Activities, D-Score
+// reviews, and Gong calls have all been mirrored locally. The UI refetches its
+// normal cache-backed reads only after this response, avoiding the former state
+// where fresh opportunities could be shown beside day-old detail data.
+app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
+  try {
+    if (!databaseConnected) {
+      return res
+        .status(503)
+        .json({ error: "Database connection not established" });
+    }
+
+    const scope = await getEffectiveOppScope(req.user.id);
+    if (!req.user.is_manager) {
+      scope.scEmails = [];
+      scope.scUserIds = [];
+    }
+    scope.sfdcUserId = req.user.sfdc_user_id ?? null;
+
+    if (req.user.is_manager && scope.scEmails.length === 0) {
+      return res.status(428).json({
+        error: "SE emails required",
+        code: "SE_EMAILS_REQUIRED",
+        details:
+          "Add the Sales Engineers you manage in Settings before your first data sync.",
+      });
+    }
+
+    const result = await syncScopedSnowflakeData({
+      userId: req.user.id,
+      userEmail: req.user.email,
+      scope,
+      activityScope: {
+        scEmails: scope.scEmails,
+        scUserIds: scope.scUserIds,
+        sfdcUserId: scope.sfdcUserId,
+      },
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Error running unified Snowflake data sync:", error);
+    res.status(500).json({
+      error: "Failed to synchronize Snowflake data",
+      details: error.message,
+    });
+  }
+});
 
 // GET /api/activities - Get activities for the current SE (or their team, if
 // a manager with SE scoping configured), scoped to the current fiscal year

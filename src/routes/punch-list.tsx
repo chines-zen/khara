@@ -114,10 +114,6 @@ function PunchListPage() {
   return (
     <div className="bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
       <main className="p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-zd-dark">Punch List</h1>
-        </div>
-
         <PunchListFilterBar
           filters={seFilters}
           onChange={setSeFilters}

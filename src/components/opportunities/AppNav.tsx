@@ -16,6 +16,9 @@ import {
   RefreshCw,
   Settings,
   AlertTriangle,
+  CheckCircle2,
+  Circle,
+  LoaderCircle,
 } from "lucide-react";
 import {
   useQuery,
@@ -25,7 +28,7 @@ import {
 } from "@tanstack/react-query";
 import { usePreferredName, useTimezone } from "@/lib/preferences";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
-import { fetchActivities } from "@/lib/api/activities";
+import { syncSnowflakeData } from "@/lib/api/snowflake-data-sync";
 import {
   DATA_SYNC_PENDING_QUERY_KEY,
   fetchDataSyncPending,
@@ -37,6 +40,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Progress } from "@/components/ui/progress";
 import {
   Sidebar,
   SidebarContent,
@@ -53,7 +64,6 @@ import {
 } from "@/components/ui/sidebar";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
-import { useActivitiesEnabled } from "@/hooks/use-activities-enabled";
 import {
   buildPunchList,
   DEFAULT_PUNCH_LIST_SETTINGS,
@@ -64,6 +74,17 @@ import {
 // in-flight state survives AppNav unmounting/remounting when the user navigates
 // between tabs mid-sync. A component-local useState would reset on remount.
 const REFRESH_MUTATION_KEY = ["appNavRefresh"];
+const SYNC_PROGRESS_DURATION_MS = 60_000;
+const SYNC_STEPS = [
+  { label: "Getting opportunity data", weight: 18 },
+  { label: "Getting activity data", weight: 24 },
+  { label: "Getting D-Score data", weight: 10 },
+  { label: "Getting Gong call data", weight: 14 },
+] as const;
+const SYNC_STEP_WEIGHT_TOTAL = SYNC_STEPS.reduce(
+  (total, step) => total + step.weight,
+  0,
+);
 
 function formatLastRefreshed(iso: string | undefined, timezone: string) {
   if (!iso) return "—";
@@ -84,7 +105,6 @@ function formatLastRefreshed(iso: string | undefined, timezone: string) {
 export function AppNav({ children }: { children?: ReactNode }) {
   const preferredName = usePreferredName();
   const timezone = useTimezone();
-  const activitiesEnabled = useActivitiesEnabled();
   const queryClient = useQueryClient();
   const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
     DEFAULT_PUNCH_LIST_SETTINGS,
@@ -120,13 +140,9 @@ export function AppNav({ children }: { children?: ReactNode }) {
     queryFn: fetchDataSyncPending,
   });
 
-  // A scope change flags data as needing a re-sync (amber warning). The manual
-  // Refresh button clears it, but a fresh sync also happens whenever the
-  // opportunities query pulls from Snowflake on a cache miss (e.g. the user just
-  // visits the opp page after changing scope). When that resolves as a real pull
-  // (metadata.cached === false), clear the warning too so it doesn't linger and
-  // confuse the user into thinking their data is still stale. Keyed on
-  // dataUpdatedAt so it only fires when a fetch actually resolves.
+  // An opportunity cache miss now runs the full unified server sync before it
+  // resolves (rather than pulling only opportunities), so this is also a safe
+  // point to clear the scope-change warning.
   useEffect(() => {
     if (syncPending && data?.metadata?.cached === false) {
       setDataSyncPending(false).then(() => {
@@ -152,26 +168,19 @@ export function AppNav({ children }: { children?: ReactNode }) {
   const { mutate: handleRefresh } = useMutation({
     mutationKey: REFRESH_MUTATION_KEY,
     mutationFn: async () => {
-      // Opps: drop the cache blob so it's fully re-pulled (they change daily).
-      // Activities: force a resync now (incremental for known SEs, full backfill
-      // for any newly-scoped ones) - keeps watermarks, unlike DELETE .../cache.
-      // D-Score: no list-level query; invalidate so the next opp-open refetches
-      // through the (now incremental) per-opp sync path.
-      await Promise.all([
-        fetch("/api/opportunities/my-sc-opps/cache", {
-          method: "DELETE",
-          credentials: "include",
-        }),
-        activitiesEnabled
-          ? fetchActivities({ force: true }).catch(() => undefined)
-          : Promise.resolve(),
-      ]);
+      // The server waits until all four Snowflake mirrors have finished before
+      // it resolves. That gives these cache-backed UI reads one completed scope
+      // instead of refreshing opportunities now and Gong/D-Score data later on
+      // a detail page.
+      await syncSnowflakeData();
+
       // Data now matches current settings - clear the "needs re-sync" warning.
       await setDataSyncPending(false);
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ["opportunities"] }),
         queryClient.invalidateQueries({ queryKey: ["activities"] }),
         queryClient.invalidateQueries({ queryKey: ["dispassionateReviews"] }),
+        queryClient.invalidateQueries({ queryKey: ["gongCalls"] }),
         queryClient.invalidateQueries({
           queryKey: DATA_SYNC_PENDING_QUERY_KEY,
         }),
@@ -195,7 +204,127 @@ export function AppNav({ children }: { children?: ReactNode }) {
         />
         <div className="min-w-0 flex-1">{children}</div>
       </div>
+      <DataSyncProgressDialog open={isRefreshing} />
     </SidebarProvider>
+  );
+}
+
+function DataSyncProgressDialog({ open }: { open: boolean }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!open) {
+      setElapsedMs(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      setElapsedMs(Date.now() - startedAt);
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [open]);
+
+  const stepDurationsMs = SYNC_STEPS.map(
+    (step) =>
+      (step.weight / SYNC_STEP_WEIGHT_TOTAL) * SYNC_PROGRESS_DURATION_MS,
+  );
+  let elapsedBeforeStepMs = 0;
+  const activeStep = stepDurationsMs.findIndex((durationMs) => {
+    const isActive = elapsedMs < elapsedBeforeStepMs + durationMs;
+    if (!isActive) elapsedBeforeStepMs += durationMs;
+    return isActive;
+  });
+  const currentStepIndex =
+    activeStep === -1 ? SYNC_STEPS.length - 1 : activeStep;
+  const overallProgress = Math.min(
+    100,
+    Math.round((elapsedMs / SYNC_PROGRESS_DURATION_MS) * 100),
+  );
+  const isFinalizing = elapsedMs >= SYNC_PROGRESS_DURATION_MS;
+
+  return (
+    <AlertDialog open={open}>
+      <AlertDialogContent className="max-w-md border-zd-border bg-white p-6 text-zd-dark">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-xl text-zd-dark">
+            Syncing your data
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-zd-teal/70">
+            {isFinalizing
+              ? "Finishing the cache update. This may take a moment."
+              : "Pulling the latest data from Snowflake."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-4 pt-2">
+          {SYNC_STEPS.map((step, index) => {
+            const stepStartMs = stepDurationsMs
+              .slice(0, index)
+              .reduce((total, durationMs) => total + durationMs, 0);
+            const isComplete = index < currentStepIndex;
+            const isActive = index === currentStepIndex;
+            const stepProgress = isComplete
+              ? 100
+              : isActive
+                ? Math.min(
+                    100,
+                    Math.round(
+                      ((elapsedMs - stepStartMs) / stepDurationsMs[index]) *
+                        100,
+                    ),
+                  )
+                : 0;
+
+            return (
+              <div key={step.label} className="space-y-1.5">
+                <div className="flex items-center gap-2 text-sm">
+                  {isComplete ? (
+                    <CheckCircle2 className="size-4 shrink-0 text-zd-green" />
+                  ) : isActive ? (
+                    <LoaderCircle className="size-4 shrink-0 animate-spin text-zd-teal" />
+                  ) : (
+                    <Circle className="size-4 shrink-0 text-zd-border" />
+                  )}
+                  <span
+                    className={
+                      isComplete
+                        ? "text-zd-dark"
+                        : isActive
+                          ? "font-medium text-zd-dark"
+                          : "text-zd-teal/50"
+                    }
+                  >
+                    {step.label}
+                    {isActive ? "..." : ""}
+                  </span>
+                  {isComplete && (
+                    <span className="ml-auto text-xs text-zd-teal/60">
+                      Done
+                    </span>
+                  )}
+                </div>
+                <Progress
+                  value={stepProgress}
+                  className="h-1.5 bg-zd-teal/15 [&>div]:bg-zd-green"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="space-y-1 pt-2">
+          <Progress
+            value={overallProgress}
+            className="h-2 bg-zd-teal/15 [&>div]:bg-zd-teal"
+          />
+          <p className="text-right font-mono text-xs text-zd-teal/60">
+            {isFinalizing ? "Finalizing" : `${overallProgress}%`}
+          </p>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

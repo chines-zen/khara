@@ -1,16 +1,13 @@
 import { pool } from '../db/index.js';
 import { executeQuery } from '../snowflake-connection.js';
-import { buildActivitiesQuery } from '../snowflake-queries.js';
+import {
+  buildActivitiesLatestSnapshotDateQuery,
+  buildActivitiesSnapshotDateTargetQuery,
+} from '../snowflake-queries.js';
 import { resolveScUserId, resolveScUserIds } from './sc-lookup.js';
 import { getFiscalYearRange } from '../fiscal-quarter.js';
 
 const CACHE_TTL_HOURS = 12;
-
-// Days subtracted from an SE's last-sync watermark when doing an incremental
-// pull, so a snapshot that landed late (or an activity backdated right at the
-// boundary) is never skipped. Re-pulling the overlap is harmless - the upsert
-// is idempotent on activity id.
-const INCREMENTAL_BUFFER_DAYS = 2;
 
 /**
  * Get activities for an SE (or, manager-only, a set of SEs) with a 12-hour
@@ -25,7 +22,9 @@ const INCREMENTAL_BUFFER_DAYS = 2;
  * @param {{ scEmails?: string[], scUserIds?: string[], sfdcUserId?: string, force?: boolean }} [scope] - manager-only:
  *   scope to these SEs instead of userEmail's own identity. `force` (the
  *   NavBar "Refresh Data" button) resyncs every in-scope SE now, ignoring the
- *   TTL gate - still incrementally for SEs already synced, full-backfill for new ones.
+ *   TTL gate. The targeted source query always reconciles the current source
+ *   snapshot for the fiscal-year date range, so known and newly scoped SEs take
+ *   the same efficient path.
  *   scUserIds / sfdcUserId are pre-resolved USER_IDs (see sc-opportunities-cache.js)
  *   that let the sync skip the USER_HISTORY identity query.
  */
@@ -74,23 +73,6 @@ async function getStaleCreatedByIds(createdByIds) {
   return createdByIds.filter((id) => !freshIds.has(id));
 }
 
-// Map of created_by_id -> last_synced_at (Date) for SEs we've synced before.
-// Absence from the map means "never synced" -> needs a full backfill.
-async function getSyncWatermarks(createdByIds) {
-  const result = await pool.query(
-    `SELECT created_by_id, last_synced_at FROM activities_sync_meta WHERE created_by_id = ANY($1)`,
-    [createdByIds],
-  );
-  return new Map(result.rows.map((r) => [r.created_by_id, r.last_synced_at]));
-}
-
-// Watermark (epoch ms) minus the safety buffer, as a YYYY-MM-DD string to
-// compare against SOURCE_SNAPSHOT_DATE (a DATE).
-function bufferedSince(epochMs) {
-  const d = new Date(epochMs - INCREMENTAL_BUFFER_DAYS * 24 * 60 * 60 * 1000);
-  return d.toISOString().split('T')[0];
-}
-
 async function getOldestSyncTime(createdByIds) {
   const result = await pool.query(
     `SELECT MIN(last_synced_at) AS oldest FROM activities_sync_meta WHERE created_by_id = ANY($1)`,
@@ -102,27 +84,30 @@ async function getOldestSyncTime(createdByIds) {
 async function syncCreatedByFromSnowflake(createdByIds, userEmail) {
   const { from, to } = getFiscalYearRange();
 
-  // Split SEs by whether we've ever synced them. Newly-scoped SEs (no watermark
-  // row) need the full fiscal-year backfill; already-known SEs only need
-  // activities that first appeared since their last sync (minus a safety buffer).
-  const watermarks = await getSyncWatermarks(createdByIds);
-  const newIds = createdByIds.filter((id) => !watermarks.has(id));
-  const knownIds = createdByIds.filter((id) => watermarks.has(id));
+  // Resolving the latest snapshot separately lets the main query avoid the
+  // source table's per-activity history window. It returned the same IDs in
+  // both individual and manager validation, while reducing the manager run
+  // from 61.8s to 18.9s. The target query also resolves duplicate current rows
+  // to the current Salesforce opportunity name (rather than an old alias).
+  const snapshotRows = await executeQuery(
+    buildActivitiesLatestSnapshotDateQuery(),
+    undefined,
+    userEmail,
+  );
+  const sourceSnapshotDate = toDateString(snapshotRows[0]?.SOURCE_SNAPSHOT_DATE);
+  if (!sourceSnapshotDate) {
+    throw new Error('Activities source has no current snapshot date');
+  }
 
-  const rows = [];
-  if (newIds.length > 0) {
-    console.log(`[Activities Cache] Full backfill for ${newIds.length} newly-scoped SE(s)`);
-    const backfillSql = buildActivitiesQuery(newIds, { fromDate: from, toDate: to });
-    rows.push(...await executeQuery(backfillSql, undefined, userEmail));
-  }
-  if (knownIds.length > 0) {
-    // Buffer back from the OLDEST known watermark so one query covers them all;
-    // any overlap is deduped by the upsert.
-    const since = bufferedSince(Math.min(...knownIds.map((id) => watermarks.get(id).getTime())));
-    console.log(`[Activities Cache] Incremental pull for ${knownIds.length} SE(s) since ${since}`);
-    const incrementalSql = buildActivitiesQuery(knownIds, { fromDate: from, toDate: to, since });
-    rows.push(...await executeQuery(incrementalSql, undefined, userEmail));
-  }
+  const rows = await executeQuery(
+    buildActivitiesSnapshotDateTargetQuery(createdByIds, {
+      fromDate: from,
+      toDate: to,
+      sourceSnapshotDate,
+    }),
+    undefined,
+    userEmail,
+  );
 
   const client = await pool.connect();
   try {
@@ -187,6 +172,12 @@ async function syncCreatedByFromSnowflake(createdByIds, userEmail) {
   } finally {
     client.release();
   }
+}
+
+function toDateString(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().split('T')[0];
+  return String(value).slice(0, 10);
 }
 
 async function getCachedActivities(createdByIds) {

@@ -106,22 +106,9 @@ export async function getDispassionateReviews(userId, userEmail, scope = {}) {
   const { opportunities } = await getScOpportunities(userId, userEmail, scope);
   const opportunityIds = opportunities.map((o) => o.id).filter(Boolean);
 
-  if (opportunityIds.length === 0) {
-    return { reviews: [], cached: true, cachedAt: null };
-  }
-
-  const idsToSync = scope.force ? opportunityIds : await getStaleOpportunityIds(opportunityIds);
-  if (idsToSync.length > 0) {
-    console.log(`[D-Score Cache] ${scope.force ? 'FORCE' : 'MISS'} - syncing ${idsToSync.length} opp(s) from Snowflake`);
-    await syncOpportunitiesFromSnowflake(idsToSync, userEmail);
-  } else {
-    console.log(`[D-Score Cache] HIT - all ${opportunityIds.length} opp(s) fresh`);
-  }
-
-  const reviews = await getCachedReviews(opportunityIds);
-  const cachedAt = await getOldestSyncTime(opportunityIds);
-
-  return { reviews, cached: idsToSync.length === 0, cachedAt };
+  return syncDispassionateReviewsForOpportunities(opportunityIds, userEmail, {
+    force: scope.force,
+  });
 }
 
 /**
@@ -133,18 +120,46 @@ export async function getDispassionateReviews(userId, userEmail, scope = {}) {
  * @returns {Promise<{ reviews: object[], cached: boolean, cachedAt: Date | null }>}
  */
 export async function getDispassionateReviewsForOpportunity(opportunityId, userEmail) {
-  const staleIds = await getStaleOpportunityIds([opportunityId]);
-  if (staleIds.length > 0) {
-    console.log(`[D-Score Cache] MISS - syncing opp ${opportunityId} from Snowflake`);
-    await syncOpportunitiesFromSnowflake(staleIds, userEmail);
-  } else {
-    console.log(`[D-Score Cache] HIT - opp ${opportunityId} fresh`);
+  return syncDispassionateReviewsForOpportunities([opportunityId], userEmail);
+}
+
+/**
+ * Sync D-Score history for an already-materialized opportunity scope.
+ *
+ * The unified data-sync endpoint calls this immediately after refreshing
+ * opportunities, so reviews are pulled for the exact same opportunity IDs
+ * instead of re-reading a possibly stale per-user opportunity cache.
+ *
+ * @param {string[]} opportunityIds
+ * @param {string} userEmail
+ * @param {{ force?: boolean }} [options]
+ */
+export async function syncDispassionateReviewsForOpportunities(
+  opportunityIds,
+  userEmail,
+  options = {},
+) {
+  const ids = [...new Set(opportunityIds.filter(Boolean))];
+  if (ids.length === 0) {
+    return { reviews: [], cached: true, cachedAt: null, syncedOpportunityCount: 0 };
   }
 
-  const reviews = await getCachedReviews([opportunityId]);
-  const cachedAt = await getOldestSyncTime([opportunityId]);
+  const idsToSync = options.force ? ids : await getStaleOpportunityIds(ids);
+  if (idsToSync.length > 0) {
+    console.log(
+      `[D-Score Cache] ${options.force ? 'FORCE' : 'MISS'} - syncing ${idsToSync.length} opp(s) from Snowflake`,
+    );
+    await syncOpportunitiesFromSnowflake(idsToSync, userEmail);
+  } else {
+    console.log(`[D-Score Cache] HIT - all ${ids.length} opp(s) fresh`);
+  }
 
-  return { reviews, cached: staleIds.length === 0, cachedAt };
+  return {
+    reviews: await getCachedReviews(ids),
+    cached: idsToSync.length === 0,
+    cachedAt: await getOldestSyncTime(ids),
+    syncedOpportunityCount: idsToSync.length,
+  };
 }
 
 async function getStaleOpportunityIds(opportunityIds) {

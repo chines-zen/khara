@@ -66,6 +66,8 @@ function NextSteps({ value }: { value: string }) {
   );
 }
 
+const UNENRICHED_HELPER_TEXT = "Details not yet ingested in Snowflake.";
+
 function Attendees({ attendees }: { attendees: GongCall["attendees"] }) {
   const isZendeskAttendee = (attendee: GongCall["attendees"][number]) =>
     attendee.company.trim().toLowerCase().startsWith("zendesk");
@@ -111,6 +113,16 @@ function Attendees({ attendees }: { attendees: GongCall["attendees"] }) {
 }
 
 function CallDetails({ call }: { call: GongCall }) {
+  if (!call.isEnriched) {
+    return (
+      <div className="border-t border-zd-border/50 bg-zd-bg/40 px-4 py-4">
+        <p className="text-sm italic leading-relaxed text-zd-teal/60">
+          {UNENRICHED_HELPER_TEXT}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-5 border-t border-zd-border/50 bg-zd-bg/40 px-4 py-4">
       <Attendees attendees={call.attendees} />
@@ -229,16 +241,25 @@ export function GongCallsSection({ oppId }: { oppId: string }) {
                         {call.title}
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <a
-                          href={call.gongUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(event) => event.stopPropagation()}
-                          className="inline-flex text-zd-teal hover:text-zd-dark"
-                          aria-label={`Open ${call.title} in Gong`}
-                        >
-                          <ExternalLink className="size-4" />
-                        </a>
+                        {call.isEnriched ? (
+                          <a
+                            href={call.gongUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            className="inline-flex text-zd-teal hover:text-zd-dark"
+                            aria-label={`Open ${call.title} in Gong`}
+                          >
+                            <ExternalLink className="size-4" />
+                          </a>
+                        ) : (
+                          <span
+                            className="text-xs italic text-zd-teal/50"
+                            title={UNENRICHED_HELPER_TEXT}
+                          >
+                            Pending
+                          </span>
+                        )}
                       </td>
                     </tr>
                     {isExpanded && (
