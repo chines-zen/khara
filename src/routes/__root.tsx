@@ -1,10 +1,11 @@
 import "../styles.css";
 
+import * as React from "react";
+
 import {
   QueryClient,
   QueryClientProvider,
   useQuery,
-  useQueryClient,
 } from "@tanstack/react-query";
 import {
   Outlet,
@@ -14,15 +15,16 @@ import {
   useRouterState,
   HeadContent,
 } from "@tanstack/react-router";
-import { EmailCaptureDialog } from "@/components/opportunities/EmailCaptureDialog";
+import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { ManagerScopeSetupDialog } from "@/components/opportunities/ManagerScopeSetupDialog";
 import {
   MANAGER_SCOPE_GATE_QUERY_KEY,
   fetchManagerNeedsScopeSetup,
 } from "@/lib/api/manager-scope";
 import { ME_QUERY_KEY, fetchMe } from "@/lib/api/me";
-import { useDevMode } from "@/hooks/use-dev-mode";
+import { saveUserPreference } from "@/lib/api/user-preferences";
 import { AppNav } from "@/components/opportunities/AppNav";
+import { HEALTH_QUERY_KEY, fetchHealth } from "@/lib/api/health";
 
 function NotFoundComponent() {
   return (
@@ -101,20 +103,98 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  const { data: health, isPending: healthPending } = useQuery({
+    queryKey: HEALTH_QUERY_KEY,
+    queryFn: fetchHealth,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const { me, isPending: mePending } = useMe();
+  const [onboardingStarted, setOnboardingStarted] = React.useState(false);
+  const devMode = Boolean(health?.devMode);
+  const onboardingActive = Boolean(
+    devMode &&
+    (onboardingStarted || me?.needsEmailSetup || me?.needsOnboarding),
+  );
+
+  const handleEmailSave = async (email: string) => {
+    setOnboardingStarted(true);
+    const response = await fetch("/api/dev/session-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(
+        data?.details || data?.error || "Failed to connect to Snowflake",
+      );
+    }
+    await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
+    const updatedMe = await queryClient.fetchQuery({
+      queryKey: ME_QUERY_KEY,
+      queryFn: fetchMe,
+      staleTime: Infinity,
+    });
+    const preferredName = updatedMe?.name?.trim().split(/\s+/)[0];
+    if (preferredName) {
+      await saveUserPreference("preferredName", preferredName);
+    }
+  };
+
+  const handleOnboardingFinished = async () => {
+    await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
+    await queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+    await queryClient.invalidateQueries({ queryKey: ["blindSpots"] });
+    setOnboardingStarted(false);
+    await router.navigate({ to: "/help" });
+  };
 
   // index.html already provides <html>/<body>; this mounts into its
   // <div id="root">. React hoists title/meta/link to the real <head>
   // regardless of where they're rendered, so per-route head() tags still
   // apply without needing our own <html>/<head> here.
+  if (healthPending || mePending) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <HeadContent />
+        <StartupLoading />
+      </QueryClientProvider>
+    );
+  }
+
+  if (onboardingActive) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <HeadContent />
+        <OnboardingFlow
+          me={me}
+          emailSetup={Boolean(me?.needsEmailSetup)}
+          onEmailSave={handleEmailSave}
+          onFinished={handleOnboardingFinished}
+        />
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <HeadContent />
-      <EmailSetupGate />
       <ManagerScopeGate />
       <AppNav>
         <Outlet />
       </AppNav>
     </QueryClientProvider>
+  );
+}
+
+function StartupLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-zd-bg text-sm text-zd-teal/70">
+      Loading Khara…
+    </div>
   );
 }
 
@@ -152,42 +232,4 @@ function ManagerScopeGate() {
   });
 
   return <ManagerScopeSetupDialog open={Boolean(needsSetup) && !onSettings} />;
-}
-
-// DEV_MODE only: blocks the app behind a first-use email capture dialog until
-// a real email has been provided (see needsEmailSetup in middleware/auth.js).
-function EmailSetupGate() {
-  const queryClient = useQueryClient();
-  const devMode = useDevMode();
-  const { me } = useMe();
-
-  const handleSave = async (email: string) => {
-    const response = await fetch("/api/dev/session-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      throw new Error(
-        data?.details || data?.error || "Failed to connect to Snowflake",
-      );
-    }
-
-    // The captured email changes who we are, so every identity-derived query has
-    // to be refetched — /api/me first, since the gates and manager scoping read it.
-    await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY });
-    queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-  };
-
-  if (!devMode) return null;
-
-  return (
-    <EmailCaptureDialog
-      open={Boolean(me?.needsEmailSetup)}
-      onSave={handleSave}
-    />
-  );
 }

@@ -7,6 +7,7 @@ export type Me = {
   createdAt: string;
   lastLogin: string;
   needsEmailSetup: boolean;
+  needsOnboarding: boolean;
   isManager: boolean;
 };
 

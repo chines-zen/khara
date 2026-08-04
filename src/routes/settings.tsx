@@ -643,7 +643,7 @@ function SettingsPage() {
 
       <div>
         <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
-          AE Zendesk Email Addresses
+          Enter your AEs emails
         </label>
         <div className="flex items-center gap-2">
           <input

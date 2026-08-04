@@ -80,7 +80,7 @@ import {
 // in-flight state survives AppNav unmounting/remounting when the user navigates
 // between tabs mid-sync. A component-local useState would reset on remount.
 const REFRESH_MUTATION_KEY = ["appNavRefresh"];
-const SYNC_PROGRESS_DURATION_MS = 60_000;
+const SYNC_PROGRESS_DURATION_MS = 40_000;
 const SYNC_STEPS = [
   { label: "Getting opportunity data", weight: 18 },
   { label: "Getting activity data", weight: 24 },
@@ -259,7 +259,7 @@ export function AppNav({ children }: { children?: ReactNode }) {
   );
 }
 
-function DataSyncProgressDialog({
+export function DataSyncProgressDialog({
   open,
   finishing,
 }: {

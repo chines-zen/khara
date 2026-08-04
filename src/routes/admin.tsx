@@ -30,6 +30,15 @@ async function clearClaudeToken() {
   return response.json();
 }
 
+async function resetDevSession() {
+  const response = await fetch("/api/dev/reset-session", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to reset DEV session");
+  return response.json();
+}
+
 const CLOSE_DATE_PRESET_LABELS: Record<string, string> = {
   current_quarter: "Current fiscal quarter",
   current_and_next_quarter: "Current + next fiscal quarter",
@@ -105,6 +114,14 @@ function AdminPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: aiBackendKey });
       queryClient.invalidateQueries({ queryKey: ["app-health"] });
+    },
+  });
+
+  const resetSession = useMutation({
+    mutationFn: resetDevSession,
+    onSuccess: () => {
+      queryClient.clear();
+      window.location.reload();
     },
   });
 
@@ -305,6 +322,28 @@ function AdminPage() {
               <div className="text-sm text-red-600">
                 Failed to load AI backend info
               </div>
+            )}
+          </div>
+        )}
+
+        {devMode && (
+          <div className="bg-white border border-zd-border rounded-lg p-6 shadow-sm">
+            <h2 className="text-lg font-semibold mb-2">DEV Session</h2>
+            <p className="text-sm text-zd-teal/60 mb-4">
+              Clear the current development session and reset DEV_USER_EMAIL.
+              Database users, preferences, and cached data are preserved.
+            </p>
+            <button
+              onClick={() => resetSession.mutate()}
+              disabled={resetSession.isPending}
+              className="rounded-md bg-zd-dark px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-zd-dark/80 disabled:opacity-50"
+            >
+              {resetSession.isPending ? "Resetting…" : "Reset DEV session"}
+            </button>
+            {resetSession.isError && (
+              <span className="ml-3 text-sm text-red-600">
+                Failed to reset DEV session
+              </span>
             )}
           </div>
         )}

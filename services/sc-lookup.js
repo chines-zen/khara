@@ -1,4 +1,4 @@
-import { executeQuery } from '../snowflake-connection.js';
+import { executeQuery } from "../snowflake-connection.js";
 
 function quote(email) {
   return email.replace(/'/g, "''");
@@ -65,9 +65,10 @@ export async function resolveUserIdentity(email) {
     userId: row.USER_ID,
     fullName: row.FULL_NAME,
     // No current employment record -> manager status is unknown, not false.
-    isManager: Number(row.HAS_CURRENT_RECORD) > 0
-      ? Number(row.DIRECT_REPORTS) > 0
-      : null,
+    isManager:
+      Number(row.HAS_CURRENT_RECORD) > 0
+        ? Number(row.DIRECT_REPORTS) > 0
+        : null,
   };
 }
 
@@ -110,7 +111,9 @@ export async function resolveScUserIds(emails, requestingEmail) {
     return [];
   }
 
-  const emailList = emails.map(e => `LOWER('${e.replace(/'/g, "''")}')`).join(', ');
+  const emailList = emails
+    .map((e) => `LOWER('${e.replace(/'/g, "''")}')`)
+    .join(", ");
   const sql = `
     SELECT USER_ID, EMAIL
     FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
@@ -119,7 +122,72 @@ export async function resolveScUserIds(emails, requestingEmail) {
   `;
 
   const rows = await executeQuery(sql, undefined, requestingEmail);
-  return rows.map(row => row.USER_ID);
+  return rows.map((row) => row.USER_ID);
+}
+
+/**
+ * Resolve a batch of onboarding emails and return the display data needed by
+ * the setup UI. Only currently-employed USER_HISTORY records count as found.
+ */
+export async function resolveOnboardingUsers(emails, requestingEmail) {
+  if (emails.length === 0) return [];
+
+  const emailValues = emails
+    .map((email) => `('${email.replace(/'/g, "''")}')`)
+    .join(", ");
+  const safeRequestingEmail = quote(requestingEmail);
+  const sql = `
+    WITH requested AS (
+      SELECT column1::STRING AS email
+      FROM VALUES ${emailValues}
+    ),
+    target AS (
+      SELECT r.email, uh.USER_ID, uh.FULL_NAME, uh.EMPLOYEE_ID,
+             ROW_NUMBER() OVER (
+               PARTITION BY LOWER(r.email) ORDER BY uh.END_DATE DESC, uh.USER_ID
+             ) AS rn
+      FROM requested r
+      JOIN FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY uh
+        ON LOWER(uh.EMAIL) = LOWER(r.email)
+       AND uh.END_DATE >= CURRENT_DATE
+    ),
+    requester AS (
+      SELECT EMPLOYEE_ID
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
+      WHERE LOWER(EMAIL) = LOWER('${safeRequestingEmail}')
+        AND END_DATE >= CURRENT_DATE
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY END_DATE DESC) = 1
+    )
+    SELECT
+      target.email,
+      target.USER_ID,
+      target.FULL_NAME,
+      EXISTS (
+        SELECT 1
+        FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY report
+        WHERE report.USER_ID = target.USER_ID
+          AND report.MANAGER_EMPLOYEE_ID = (SELECT EMPLOYEE_ID FROM requester)
+          AND report.END_DATE >= CURRENT_DATE
+      ) AS IS_DIRECT_REPORT
+    FROM target
+    WHERE target.rn = 1
+  `;
+
+  const rows = await executeQuery(sql, undefined, requestingEmail);
+  const byEmail = new Map(
+    rows.map((row) => [String(row.EMAIL).toLowerCase(), row]),
+  );
+
+  return emails.map((email) => {
+    const row = byEmail.get(email.toLowerCase());
+    return {
+      email,
+      found: Boolean(row),
+      userId: row?.USER_ID ?? null,
+      fullName: row?.FULL_NAME ?? null,
+      isDirectReport: row ? Boolean(row.IS_DIRECT_REPORT) : false,
+    };
+  });
 }
 
 /**

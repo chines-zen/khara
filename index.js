@@ -53,7 +53,10 @@ import {
   invalidateGongCallsCache,
 } from "./services/gong-calls-cache.js";
 import { syncScopedSnowflakeData } from "./services/snowflake-data-sync.js";
-import { resolveScUserId } from "./services/sc-lookup.js";
+import {
+  resolveScUserId,
+  resolveOnboardingUsers,
+} from "./services/sc-lookup.js";
 import {
   getEffectiveOppScope,
   getEffectiveBlindSpotsScope,
@@ -63,6 +66,10 @@ import {
   setBlindSpotReviewed,
 } from "./services/blind-spots-cache.js";
 import { setEnvVar } from "./services/env-writer.js";
+import {
+  getUserPreference,
+  setUserPreference,
+} from "./services/preferences.js";
 import { validateBedrockToken, MODEL_ID } from "./src/lib/claude-ai.server.js";
 
 // Routes
@@ -277,6 +284,7 @@ app.get("/api/me", authenticateWithPomerium, (req, res) => {
     createdAt: req.user.created_at,
     lastLogin: req.user.last_login,
     needsEmailSetup: Boolean(req.user.needsEmailSetup),
+    needsOnboarding: Boolean(req.user.needsOnboarding),
     isManager: Boolean(req.user.is_manager),
   });
 });
@@ -298,6 +306,22 @@ app.post("/api/auth/logout", (req, res) => {
 // DEV_MODE only: let a developer switch which email authenticateWithPomerium's
 // bypass uses, so SC-scoped filtering can be exercised without real Pomerium headers.
 if (process.env.DEV_MODE === "true") {
+  app.post("/api/dev/reset-session", async (req, res) => {
+    try {
+      await new Promise((resolve, reject) => {
+        req.session.destroy((err) => (err ? reject(err) : resolve()));
+      });
+      await setEnvVar("DEV_USER_EMAIL", "");
+      res.json({
+        success: true,
+        message: "DEV session cleared and DEV_USER_EMAIL reset",
+      });
+    } catch (error) {
+      console.error("Failed to reset DEV session:", error);
+      res.status(500).json({ error: "Failed to reset DEV session" });
+    }
+  });
+
   app.post("/api/dev/session-email", async (req, res) => {
     const { email } = req.body;
 
@@ -310,6 +334,14 @@ if (process.env.DEV_MODE === "true") {
     // failed SSO attempt surfaces immediately in the capture dialog.
     try {
       await connectToSnowflake(email);
+      const [identity] = await resolveOnboardingUsers([email], email);
+      if (!identity?.found) {
+        return res.status(400).json({
+          error: "No Snowflake user found",
+          details:
+            "We could not find a current Salesforce user for that email. Check the address and try again.",
+        });
+      }
     } catch (error) {
       console.error(
         "Failed to connect to Snowflake for dev session email:",
@@ -322,6 +354,7 @@ if (process.env.DEV_MODE === "true") {
     }
 
     req.session.devEmailOverride = email;
+    req.session.devOnboardingComplete = false;
 
     // Persist to .env so future dev sessions start with this email already set
     // (DEV_USER_EMAIL), skipping the capture dialog. Best-effort — a write
@@ -341,6 +374,97 @@ if (process.env.DEV_MODE === "true") {
           .json({ error: "Failed to save dev session email" });
       }
       res.json({ success: true, email });
+    });
+  });
+}
+
+// First-login setup: validate a batch of emails in one USER_HISTORY query and
+// persist only the users that were found. The cache tables remain derived
+// snapshots; durable onboarding scope lives in user_preferences.
+app.post(
+  "/api/onboarding/validate-scope",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      const { type, emails } = req.body;
+      if (!["se", "blind-spot-owner"].includes(type)) {
+        return res.status(400).json({ error: "Invalid onboarding scope type" });
+      }
+      if (!Array.isArray(emails) || emails.length === 0) {
+        return res.status(400).json({ error: "Enter at least one email" });
+      }
+      if (type === "se" && !req.user.is_manager) {
+        return res
+          .status(403)
+          .json({ error: "Only managers can configure SE scope" });
+      }
+      if (type === "blind-spot-owner" && req.user.is_manager) {
+        return res
+          .status(403)
+          .json({ error: "Managers cannot configure Blind Spots scope" });
+      }
+
+      const normalizedEmails = [
+        ...new Set(
+          emails
+            .filter((email) => typeof email === "string")
+            .map((email) => email.trim().toLowerCase())
+            .filter(Boolean),
+        ),
+      ];
+      const results = await resolveOnboardingUsers(
+        normalizedEmails,
+        req.user.email,
+      );
+      const found = results.filter((result) => result.found);
+
+      if (type === "se") {
+        const existing = await getUserPreference(
+          req.user.id,
+          "oppScopeSettings",
+        );
+        await setUserPreference(req.user.id, "oppScopeSettings", {
+          ...(existing || {}),
+          scEmails: found.map((result) => result.email),
+          scUserIds: found.map((result) => result.userId),
+          scUserIdsFor: found.map((result) => result.email),
+        });
+      } else {
+        const existing = await getUserPreference(
+          req.user.id,
+          "blindSpotsSettings",
+        );
+        await setUserPreference(req.user.id, "blindSpotsSettings", {
+          ...(existing || {}),
+          ownerEmails: found.map((result) => result.email),
+        });
+      }
+
+      res.json({ results, savedEmails: found.map((result) => result.email) });
+    } catch (error) {
+      console.error("Error validating onboarding scope:", error);
+      res.status(500).json({
+        error: "Failed to validate onboarding emails",
+        details: error.message,
+      });
+    }
+  },
+);
+
+// Mark the DEV_MODE onboarding session complete only after the initial sync has
+// succeeded. This keeps a reload during setup recoverable without changing the
+// existing production authentication/session model.
+if (process.env.DEV_MODE === "true") {
+  app.post("/api/onboarding/complete", authenticateWithPomerium, (req, res) => {
+    req.session.devOnboardingComplete = true;
+    req.session.save((err) => {
+      if (err) {
+        console.error("Failed to save onboarding completion:", err);
+        return res
+          .status(500)
+          .json({ error: "Failed to save onboarding state" });
+      }
+      res.json({ success: true });
     });
   });
 }
@@ -449,7 +573,8 @@ app.get(
         return res.status(409).json({
           error: "Data expired",
           code: "DATA_EXPIRED",
-          details: "Please refresh your data. Make sure you're on the VPN before doing so.",
+          details:
+            "Please refresh your data. Make sure you're on the VPN before doing so.",
         });
       }
 
@@ -594,12 +719,10 @@ app.delete(
       res.json({ success: true, message: "Gong calls cache cleared" });
     } catch (error) {
       console.error("Error clearing Gong calls cache:", error);
-      res
-        .status(500)
-        .json({
-          error: "Failed to clear Gong calls cache",
-          details: error.message,
-        });
+      res.status(500).json({
+        error: "Failed to clear Gong calls cache",
+        details: error.message,
+      });
     }
   },
 );
@@ -841,12 +964,10 @@ app.get(
       res.json(result); // null if no summary has been generated yet
     } catch (error) {
       console.error("Error fetching cached summary:", error);
-      res
-        .status(500)
-        .json({
-          error: "Failed to fetch cached summary",
-          details: error.message,
-        });
+      res.status(500).json({
+        error: "Failed to fetch cached summary",
+        details: error.message,
+      });
     }
   },
 );
@@ -878,12 +999,10 @@ app.get(
       });
     } catch (error) {
       console.error("Error fetching dispassionate reviews:", error);
-      res
-        .status(500)
-        .json({
-          error: "Failed to fetch dispassionate reviews",
-          details: error.message,
-        });
+      res.status(500).json({
+        error: "Failed to fetch dispassionate reviews",
+        details: error.message,
+      });
     }
   },
 );
@@ -1051,12 +1170,10 @@ app.get(
       res.json({ hiddenOpportunityIds: hiddenIds });
     } catch (error) {
       console.error("Error fetching hidden opportunities:", error);
-      res
-        .status(500)
-        .json({
-          error: "Failed to fetch hidden opportunities",
-          details: error.message,
-        });
+      res.status(500).json({
+        error: "Failed to fetch hidden opportunities",
+        details: error.message,
+      });
     }
   },
 );
@@ -1102,12 +1219,10 @@ app.delete(
       res.json({ success: true, message: "Opportunity unhidden" });
     } catch (error) {
       console.error("Error unhiding opportunity:", error);
-      res
-        .status(500)
-        .json({
-          error: "Failed to unhide opportunity",
-          details: error.message,
-        });
+      res.status(500).json({
+        error: "Failed to unhide opportunity",
+        details: error.message,
+      });
     }
   },
 );

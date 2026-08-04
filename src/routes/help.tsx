@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useIsManager } from "@/hooks/use-is-manager";
 
 export const Route = createFileRoute("/help")({
@@ -14,16 +14,32 @@ export const Route = createFileRoute("/help")({
 function HelpPage() {
   const isManager = useIsManager();
   const sections = [
-    ["Metrics", "Overview of your business"],
-    [
-      "Opportunities",
-      "See your SFDC notes, D-Scores, and Gong calls, all in one place. Generate an AI summary to get a 360 view of the opp health.",
-    ],
-    ["Punch List", "Curated list of opps that need your attention."],
+    { name: "Metrics", description: "Overview of your business", to: "/" },
+    {
+      name: "Opportunities",
+      description:
+        "See your SFDC notes, D-Scores, and Gong calls, all in one place. Generate an AI summary to get a 360 view of the opp health.",
+      to: "/opportunities",
+    },
+    {
+      name: "Punch List",
+      description: "Curated list of opps that need your attention.",
+      to: "/punch-list",
+    },
     ...(isManager
       ? []
-      : [["Blind Spots", "Opps that may have slipped under the radar."]]),
-    ["Activities", "All of your hard work!"],
+      : [
+          {
+            name: "Blind Spots",
+            description: "Opps that may have slipped under the radar.",
+            to: "/blind-spots",
+          },
+        ]),
+    {
+      name: "Activities",
+      description: "All of your hard work!",
+      to: "/activities",
+    },
   ];
 
   return (
@@ -37,11 +53,15 @@ function HelpPage() {
       </div>
 
       <div className="rounded border border-zd-border bg-white divide-y divide-zd-border">
-        {sections.map(([name, description]) => (
-          <div key={name} className="px-6 py-4">
+        {sections.map(({ name, description, to }) => (
+          <Link
+            key={name}
+            to={to}
+            className="block px-6 py-4 transition-colors hover:bg-zd-bg"
+          >
             <h3 className="text-sm font-semibold text-zd-dark">{name}</h3>
             <p className="mt-1 text-sm text-zd-teal/80">{description}</p>
-          </div>
+          </Link>
         ))}
       </div>
     </main>

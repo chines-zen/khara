@@ -1,6 +1,6 @@
-import { pool } from '../db/index.js';
-import { resolveUserIdentity } from '../services/sc-lookup.js';
-import { ensureDefaultOppScope } from '../services/opp-scope.js';
+import { pool } from "../db/index.js";
+import { resolveUserIdentity } from "../services/sc-lookup.js";
+import { ensureDefaultOppScope } from "../services/opp-scope.js";
 
 // How long a cached identity (sfdc_user_id + is_manager) is trusted before it's
 // re-resolved from USER_HISTORY. Long, because these change rarely — but not
@@ -24,9 +24,11 @@ const identityInFlight = new Map();
  * Pomerium proxy forwards these headers after successful SSO
  */
 function extractPomeriumUser(req) {
-  const email = req.headers['x-pomerium-claim-email'];
-  const sub = req.headers['x-pomerium-claim-sub'];
-  const name = req.headers['x-pomerium-claim-name'] || req.headers['x-pomerium-claim-given_name'];
+  const email = req.headers["x-pomerium-claim-email"];
+  const sub = req.headers["x-pomerium-claim-sub"];
+  const name =
+    req.headers["x-pomerium-claim-name"] ||
+    req.headers["x-pomerium-claim-given_name"];
 
   if (!email || !sub) {
     return null;
@@ -76,7 +78,7 @@ async function getUserById(id) {
     `SELECT id, email, sub, name, created_at, last_login, is_manager,
             sfdc_user_id, identity_resolved_at
      FROM users WHERE id = $1`,
-    [id]
+    [id],
   );
   return result.rows[0] || null;
 }
@@ -109,7 +111,7 @@ function resolveIdentityOnce(email) {
 
   const promise = resolveUserIdentity(email)
     .catch((error) => {
-      console.error('Failed to resolve user identity from Snowflake:', error);
+      console.error("Failed to resolve user identity from Snowflake:", error);
       return null;
     })
     .finally(() => {
@@ -134,7 +136,8 @@ function resolveIdentityOnce(email) {
  * as "unknown", not "not a manager".
  */
 async function ensureUserIdentity(user, email, fallbackName) {
-  if (!email || !needsIdentityRefresh(user)) {
+  const needsNameRefresh = !user.name || user.name === "Development User";
+  if (!email || (!needsIdentityRefresh(user) && !needsNameRefresh)) {
     return user;
   }
 
@@ -158,7 +161,7 @@ async function ensureUserIdentity(user, email, fallbackName) {
      WHERE id = $4
      RETURNING id, email, sub, name, created_at, last_login, is_manager,
                sfdc_user_id, identity_resolved_at`,
-    [identity.userId, isManager, name, user.id]
+    [identity.userId, isManager, name, user.id],
   );
 
   Object.assign(user, result.rows[0]);
@@ -176,10 +179,11 @@ async function ensureUserIdentity(user, email, fallbackName) {
 export async function authenticateWithPomerium(req, res, next) {
   try {
     // Development mode bypass
-    if (process.env.DEV_MODE === 'true') {
-      console.log('⚠️  DEV_MODE: Bypassing authentication');
-      const capturedEmail = req.session?.devEmailOverride || process.env.DEV_USER_EMAIL;
-      const devEmail = capturedEmail || 'dev@localhost';
+    if (process.env.DEV_MODE === "true") {
+      console.log("⚠️  DEV_MODE: Bypassing authentication");
+      const capturedEmail =
+        req.session?.devEmailOverride || process.env.DEV_USER_EMAIL;
+      const devEmail = capturedEmail || "dev@localhost";
 
       // Reuse the user already upserted earlier in this session so last_login is
       // a once-per-session write. This also skips the Snowflake name lookup
@@ -196,7 +200,11 @@ export async function authenticateWithPomerium(req, res, next) {
         // The real name comes from the identity resolution below, which also
         // fills in sfdc_user_id and is_manager — one Snowflake query for all
         // three instead of a separate name lookup here.
-        user = await upsertUser({ email: devEmail, sub: `dev-local-${devEmail}`, name: 'Development User' });
+        user = await upsertUser({
+          email: devEmail,
+          sub: `dev-local-${devEmail}`,
+          name: "Development User",
+        });
 
         // Set session if available
         if (req.session) {
@@ -210,9 +218,15 @@ export async function authenticateWithPomerium(req, res, next) {
       // frontend uses this to show a first-use email capture dialog instead of
       // silently querying Snowflake/Salesforce data as the 'dev@localhost' placeholder.
       req.user.needsEmailSetup = !capturedEmail;
+      // DEV_MODE onboarding is intentionally session-scoped: a developer who
+      // starts with no DEV_USER_EMAIL must complete setup before data queries
+      // mount, while existing seeded dev sessions keep their current behavior.
+      req.user.needsOnboarding = Boolean(
+        capturedEmail && !req.session?.devOnboardingComplete,
+      );
 
       if (capturedEmail) {
-        await ensureUserIdentity(req.user, capturedEmail, 'Development User');
+        await ensureUserIdentity(req.user, capturedEmail, "Development User");
       }
 
       return next();
@@ -223,8 +237,8 @@ export async function authenticateWithPomerium(req, res, next) {
 
     if (!pomeriumUser) {
       return res.status(401).json({
-        error: 'Unauthorized',
-        message: 'No valid Pomerium authentication headers found',
+        error: "Unauthorized",
+        message: "No valid Pomerium authentication headers found",
       });
     }
 
@@ -256,9 +270,9 @@ export async function authenticateWithPomerium(req, res, next) {
 
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error("Authentication error:", error);
     res.status(500).json({
-      error: 'Authentication failed',
+      error: "Authentication failed",
       message: error.message,
     });
   }
@@ -277,15 +291,15 @@ export async function restoreUserFromSession(req, res, next) {
   if (req.session && req.session.userId) {
     try {
       const result = await pool.query(
-        'SELECT id, email, sub, name, created_at, last_login FROM users WHERE id = $1',
-        [req.session.userId]
+        "SELECT id, email, sub, name, created_at, last_login FROM users WHERE id = $1",
+        [req.session.userId],
       );
 
       if (result.rows.length > 0) {
         req.user = result.rows[0];
       }
     } catch (error) {
-      console.error('Session restore error:', error);
+      console.error("Session restore error:", error);
     }
   }
 
