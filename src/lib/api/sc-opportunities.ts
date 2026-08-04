@@ -2,6 +2,8 @@ import type { Opportunity } from "@/lib/opportunities";
 
 export class ScUserNotFoundError extends Error {}
 
+export class DataExpiredError extends Error {}
+
 export type ScOpportunitiesResponse = {
   opportunities: Opportunity[];
   metadata: {
@@ -21,6 +23,15 @@ export async function fetchOpportunities(): Promise<ScOpportunitiesResponse> {
   if (response.status === 404) {
     const data = await response.json().catch(() => null);
     throw new ScUserNotFoundError(data?.details || "No SC record found for your account.");
+  }
+
+  if (response.status === 409) {
+    const data = await response.json().catch(() => null);
+    if (data?.code === "DATA_EXPIRED") {
+      throw new DataExpiredError(
+        data?.details || "Please refresh your data. Make sure you're on the VPN before doing so.",
+      );
+    }
   }
 
   if (!response.ok) {

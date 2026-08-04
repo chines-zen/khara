@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -27,7 +28,10 @@ import {
   useIsMutating,
 } from "@tanstack/react-query";
 import { usePreferredName, useTimezone } from "@/lib/preferences";
-import { fetchOpportunities } from "@/lib/api/sc-opportunities";
+import {
+  DataExpiredError,
+  fetchOpportunities,
+} from "@/lib/api/sc-opportunities";
 import { syncSnowflakeData } from "@/lib/api/snowflake-data-sync";
 import {
   DATA_SYNC_PENDING_QUERY_KEY,
@@ -123,7 +127,7 @@ export function AppNav({ children }: { children?: ReactNode }) {
   // opportunities pages). Mismatched retry settings on a shared key resolve by
   // observer registration order, and each retry of a failed fetch re-enters the
   // Snowflake connect path — which in EXTERNALBROWSER mode is a new SSO tab.
-  const { data, dataUpdatedAt } = useQuery({
+  const { data, dataUpdatedAt, error: opportunitiesError } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
     retry: false,
@@ -164,6 +168,7 @@ export function AppNav({ children }: { children?: ReactNode }) {
   // The mutation state lives on the QueryClient, so isRefreshing reflects any
   // in-flight sync even after this AppNav instance remounts on tab navigation.
   const isRefreshing = useIsMutating({ mutationKey: REFRESH_MUTATION_KEY }) > 0;
+  const autoSyncAttempted = useRef(false);
 
   const { mutate: handleRefresh } = useMutation({
     mutationKey: REFRESH_MUTATION_KEY,
@@ -187,6 +192,26 @@ export function AppNav({ children }: { children?: ReactNode }) {
       ]);
     },
   });
+
+  // An expired cache is reported by the initial opportunities request so the
+  // UI can show this same progress modal used by the manual Refresh button.
+  // Keep one automatic attempt per mounted app to avoid retry loops when auth
+  // or the VPN is unavailable; the user can still click Refresh afterward.
+  useEffect(() => {
+    if (data) {
+      autoSyncAttempted.current = false;
+      return;
+    }
+
+    if (
+      !autoSyncAttempted.current &&
+      !isRefreshing &&
+      opportunitiesError instanceof DataExpiredError
+    ) {
+      autoSyncAttempted.current = true;
+      handleRefresh();
+    }
+  }, [data, handleRefresh, isRefreshing, opportunitiesError]);
 
   return (
     <SidebarProvider

@@ -129,6 +129,7 @@ const SESSION_DEAD_CODES = new Set([
   '390112', // SESSION_TOKEN_EXPIRED
   '390114', // MASTER_TOKEN_EXPIRED
   '390195', // ID_TOKEN_INVALID
+  '407002', // operation attempted using a terminated connection
 ]);
 
 /**
@@ -147,32 +148,52 @@ function isSessionDeadError(err) {
   }
   // Fall back to the SQL state for authorization failures (28000), which the SDK
   // surfaces without a GS error code in some paths.
-  return err?.sqlState === '28000';
+  return (
+    err?.sqlState === '28000' ||
+    err?.message?.toLowerCase().includes('terminated connection')
+  );
 }
 
 export async function executeQuery(sql, binds, email) {
   const key = resolveKey(email);
-  const conn = await connectToSnowflake(email);
-  return new Promise((resolve, reject) => {
-    conn.execute({
-      sqlText: sql,
-      binds,
-      complete: (err, _stmt, rows) => {
-        if (err) {
-          // Only drop the cached connection when the session is genuinely dead,
-          // so the next request re-authenticates. A statement-level failure
-          // leaves the connection in place — see isSessionDeadError.
-          if (isSessionDeadError(err)) {
-            connections.delete(key);
-          }
-          lastErrors.set(key, err.message);
-          reject(err);
-          return;
-        }
-        resolve(rows || []);
-      },
-    });
-  });
+  // A terminated connection is not recoverable by retrying the statement on
+  // the same SDK object. Evict it and retry the query once so EXTERNALBROWSER
+  // auth opens a fresh SSO tab as part of the request that discovered expiry.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const conn = await connectToSnowflake(email);
+    try {
+      return await new Promise((resolve, reject) => {
+        conn.execute({
+          sqlText: sql,
+          binds,
+          complete: (err, _stmt, rows) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(rows || []);
+          },
+        });
+      });
+    } catch (err) {
+      // Only drop the cached connection when the session is genuinely dead,
+      // so a statement-level failure leaves a good connection in place.
+      if (!isSessionDeadError(err)) {
+        lastErrors.set(key, err.message);
+        throw err;
+      }
+
+      connections.delete(key);
+      lastErrors.set(key, err.message);
+      if (attempt === 1) {
+        throw err;
+      }
+    }
+  }
+
+  // The loop either returns or throws; this is only a safeguard for type
+  // checkers and future edits to the retry logic.
+  throw new Error('Snowflake query failed after reconnecting');
 }
 
 export async function closeConnection(email) {

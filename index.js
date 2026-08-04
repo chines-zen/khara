@@ -431,20 +431,15 @@ app.get(
       }
 
       // A fresh opportunity blob can be served immediately. When it has
-      // expired, do not silently refresh Opportunities by themselves: run the
-      // same unified sync used by the manual Refresh button so Activities,
-      // D-Score reviews, and Gong calls advance to one completed scope too.
+      // expired, let the client start the same unified sync used by the manual
+      // Refresh button so its progress modal is visible while all domains
+      // advance to one completed scope.
       const wasCached = await hasFreshScOpportunitiesCache(userId);
       if (!wasCached) {
-        await syncScopedSnowflakeData({
-          userId,
-          userEmail: scEmail,
-          scope,
-          activityScope: {
-            scEmails: scope.scEmails,
-            scUserIds: scope.scUserIds,
-            sfdcUserId: scope.sfdcUserId,
-          },
+        return res.status(409).json({
+          error: "Data expired",
+          code: "DATA_EXPIRED",
+          details: "Please refresh your data. Make sure you're on the VPN before doing so.",
         });
       }
 

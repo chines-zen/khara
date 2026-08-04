@@ -10,7 +10,11 @@ import {
   fetchUserPreference,
   saveUserPreference,
 } from "@/lib/api/user-preferences";
-import { fetchOpportunities, ScUserNotFoundError } from "@/lib/api/sc-opportunities";
+import {
+  DataExpiredError,
+  fetchOpportunities,
+  ScUserNotFoundError,
+} from "@/lib/api/sc-opportunities";
 import { useIsManager } from "@/hooks/use-is-manager";
 import {
   Popover,
@@ -313,14 +317,17 @@ function OpportunitiesPage() {
   }
 
   if (fetchError) {
+    const isDataRefreshError =
+      fetchError instanceof DataExpiredError ||
+      fetchError.message.toLowerCase().includes("terminated connection");
+
     return (
       <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
         <main className="p-6">
           <div className="bg-white border border-red-200 rounded p-8 text-center text-sm text-red-600">
-            Failed to load opportunities: {fetchError.message}
-            <div className="mt-1 text-red-500/70">
-              Try refreshing. If this persists, the Snowflake connection may need to be restarted.
-            </div>
+            {isDataRefreshError
+              ? "Please refresh your data. Make sure you're on the VPN before doing so."
+              : `Failed to load opportunities: ${fetchError.message}`}
           </div>
         </main>
       </div>
