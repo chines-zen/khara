@@ -15,6 +15,7 @@ export type SnowflakeDataSyncResponse = {
   domains: {
     opportunities: SnowflakeSyncDomain;
     activities: SnowflakeSyncDomain;
+    blindSpots: SnowflakeSyncDomain;
     dispassionateReviews: SnowflakeSyncDomain;
     gongCalls: SnowflakeSyncDomain;
   };
@@ -22,7 +23,7 @@ export type SnowflakeDataSyncResponse = {
 
 /**
  * Refresh all scope-dependent Snowflake mirrors. The endpoint does not resolve
- * until all four domains are written locally, so callers can safely refetch the
+ * until all five domains are written locally, so callers can safely refetch the
  * cache-backed UI queries together afterwards.
  */
 export async function syncSnowflakeData(): Promise<SnowflakeDataSyncResponse> {

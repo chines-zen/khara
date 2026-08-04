@@ -257,7 +257,7 @@ function normalizeStage(stage) {
   return stage;
 }
 
-function transformOpportunity(row) {
+export function transformOpportunity(row) {
   return {
     id: row.ID,
     name: row.NAME,

@@ -29,6 +29,7 @@ import {
   DEFAULT_PUNCH_LIST_SETTINGS,
   type PunchListSettings,
 } from "@/lib/punch-list";
+import type { BlindSpotsSettings } from "@/lib/api/blind-spots";
 import {
   Dialog,
   DialogContent,
@@ -100,6 +101,16 @@ function SettingsPage() {
   const [isManager, setIsManager] = useState(false);
   const [scEmails, setScEmails] = useState<string[]>([]);
   const [scEmailInput, setScEmailInput] = useState("");
+  const [blindSpotsSettings, setBlindSpotsSettings] =
+    useState<BlindSpotsSettings>({
+      ownerEmails: [],
+      arrThreshold: DEFAULT_ARR_THRESHOLD,
+      closeDatePreset: DEFAULT_CLOSE_DATE_PRESET,
+      closeDateFrom: null,
+      closeDateTo: null,
+    });
+  const [blindSpotEmailInput, setBlindSpotEmailInput] = useState("");
+  const [blindSpotsSaved, setBlindSpotsSaved] = useState(false);
   // Signature of the scope fields (SE emails, ARR, close-date preset) as last
   // saved, so a save that changes any of them can flag data as needing a re-sync.
   const [savedScopeSignature, setSavedScopeSignature] = useState<string | null>(
@@ -153,6 +164,16 @@ function SettingsPage() {
         }
 
         setSavedScopeSignature(scopeSignature(savedScope));
+      },
+    );
+  }, []);
+
+  useEffect(() => {
+    fetchUserPreference<BlindSpotsSettings>("blindSpotsSettings").then(
+      (saved) => {
+        if (saved) {
+          setBlindSpotsSettings((current) => ({ ...current, ...saved }));
+        }
       },
     );
   }, []);
@@ -262,6 +283,39 @@ function SettingsPage() {
 
   const removeScEmail = (email: string) => {
     setScEmails(scEmails.filter((e) => e !== email));
+  };
+
+  const addBlindSpotEmail = () => {
+    const email = blindSpotEmailInput.trim().toLowerCase();
+    if (!email || blindSpotsSettings.ownerEmails.includes(email)) {
+      setBlindSpotEmailInput("");
+      return;
+    }
+    setBlindSpotsSettings({
+      ...blindSpotsSettings,
+      ownerEmails: [...blindSpotsSettings.ownerEmails, email],
+    });
+    setBlindSpotEmailInput("");
+  };
+
+  const saveBlindSpotsSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveUserPreference("blindSpotsSettings", {
+      ...blindSpotsSettings,
+      arrThreshold:
+        Number(blindSpotsSettings.arrThreshold) || DEFAULT_ARR_THRESHOLD,
+      closeDateFrom:
+        blindSpotsSettings.closeDatePreset === "custom"
+          ? blindSpotsSettings.closeDateFrom
+          : null,
+      closeDateTo:
+        blindSpotsSettings.closeDatePreset === "custom"
+          ? blindSpotsSettings.closeDateTo
+          : null,
+    });
+    queryClient.invalidateQueries({ queryKey: ["blindSpots"] });
+    setBlindSpotsSaved(true);
+    setTimeout(() => setBlindSpotsSaved(false), 2000);
   };
 
   const handleCuriousClick = () => {
@@ -571,6 +625,163 @@ function SettingsPage() {
     </form>
   );
 
+  const blindSpotsForm = !isManager ? (
+    <form
+      onSubmit={saveBlindSpotsSettings}
+      className="bg-white border border-zd-border rounded p-6 space-y-5"
+    >
+      <div>
+        <h2 className="text-sm font-semibold text-zd-dark">
+          Blind Spots Scope
+        </h2>
+        <p className="mt-1 text-[11px] text-zd-teal/70">
+          Find active opportunities owned by these AEs that do not have a
+          Solution Consultant assigned. These settings are independent of your
+          main opportunity scope.
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+          AE Zendesk Email Addresses
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="email"
+            value={blindSpotEmailInput}
+            onChange={(e) => setBlindSpotEmailInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                addBlindSpotEmail();
+              }
+            }}
+            placeholder="ae@zendesk.com"
+            className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
+          />
+          <button
+            type="button"
+            onClick={addBlindSpotEmail}
+            disabled={!blindSpotEmailInput.trim()}
+            className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            Add
+          </button>
+        </div>
+        {blindSpotsSettings.ownerEmails.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {blindSpotsSettings.ownerEmails.map((email) => (
+              <span
+                key={email}
+                className="inline-flex items-center gap-1.5 bg-zd-bg border border-zd-border rounded px-2 py-1 text-xs text-zd-dark"
+              >
+                {email}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setBlindSpotsSettings({
+                      ...blindSpotsSettings,
+                      ownerEmails: blindSpotsSettings.ownerEmails.filter(
+                        (item) => item !== email,
+                      ),
+                    })
+                  }
+                  className="text-zd-teal/60 hover:text-zd-dark"
+                  aria-label={`Remove ${email}`}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+          ARR Minimum
+        </label>
+        <div className="flex items-center gap-1 max-w-[200px]">
+          <span className="text-sm text-zd-teal/50">$</span>
+          <input
+            type="number"
+            min={0}
+            value={blindSpotsSettings.arrThreshold}
+            onChange={(e) =>
+              setBlindSpotsSettings({
+                ...blindSpotsSettings,
+                arrThreshold: Number(e.target.value),
+              })
+            }
+            className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider mb-1">
+          Close Date Range
+        </label>
+        <select
+          value={blindSpotsSettings.closeDatePreset}
+          onChange={(e) =>
+            setBlindSpotsSettings({
+              ...blindSpotsSettings,
+              closeDatePreset: e.target.value as CloseDatePreset,
+            })
+          }
+          className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green mb-2"
+        >
+          <option value="current_quarter">Current Fiscal Quarter</option>
+          <option value="current_and_next_quarter">
+            Current + Next Fiscal Quarter
+          </option>
+          <option value="fiscal_year">Fiscal Year</option>
+          <option value="custom">Custom</option>
+        </select>
+        {blindSpotsSettings.closeDatePreset === "custom" && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={blindSpotsSettings.closeDateFrom ?? ""}
+              onChange={(e) =>
+                setBlindSpotsSettings({
+                  ...blindSpotsSettings,
+                  closeDateFrom: e.target.value,
+                })
+              }
+              className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono"
+            />
+            <span className="text-zd-teal/50 text-xs">to</span>
+            <input
+              type="date"
+              value={blindSpotsSettings.closeDateTo ?? ""}
+              onChange={(e) =>
+                setBlindSpotsSettings({
+                  ...blindSpotsSettings,
+                  closeDateTo: e.target.value,
+                })
+              }
+              className="flex-1 bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="pt-2 flex items-center justify-end gap-3">
+        {blindSpotsSaved && (
+          <span className="text-xs text-zd-green font-semibold">Saved</span>
+        )}
+        <button
+          type="submit"
+          className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  ) : null;
+
   return (
     <div className="min-h-screen bg-zd-bg font-sans text-zd-dark selection:bg-zd-green/20">
       <main className="max-w-[720px] mx-auto p-6 space-y-6">
@@ -703,6 +914,8 @@ function SettingsPage() {
         </form>
 
         {punchListForm}
+
+        {blindSpotsForm}
 
         <div className="flex items-center justify-between">
           {doNotClickActive ? (

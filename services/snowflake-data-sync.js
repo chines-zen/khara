@@ -3,6 +3,7 @@ import { getActivities } from "./activities-cache.js";
 import { syncDispassionateReviewsForOpportunities } from "./dispassionate-reviews-cache.js";
 import { syncGongCallsForOpportunities } from "./gong-calls-cache.js";
 import { getScOpportunities } from "./sc-opportunities-cache.js";
+import { getBlindSpots } from "./blind-spots-cache.js";
 
 // A second click (or another open tab) for the same app user should join the
 // current run, never interleave a second set of cache writes with it. The entry
@@ -14,12 +15,12 @@ const inFlightSyncs = new Map();
  * Materialize one coherent, scoped Snowflake refresh.
  *
  * Opportunities and Activities are independent, so their optimized source
- * pulls start together. D-Score reviews and Gong calls then run together using
+ * pulls start together. Blind Spots is fetched alongside them. D-Score reviews and Gong calls then run together using
  * the exact fresh opportunity IDs (and fresh account names for Gong attendee
  * enrichment). The caller receives success only after every domain has
  * completed, allowing the UI to refetch its local reads as a single step.
  *
- * @param {{ userId: number, userEmail: string, scope: object, activityScope: object }} options
+ * @param {{ userId: number, userEmail: string, scope: object, activityScope: object, blindSpotsScope: object }} options
  */
 export function syncScopedSnowflakeData(options) {
   const existing = inFlightSyncs.get(options.userId);
@@ -34,7 +35,13 @@ export function syncScopedSnowflakeData(options) {
   return run;
 }
 
-async function performSync({ userId, userEmail, scope, activityScope }) {
+async function performSync({
+  userId,
+  userEmail,
+  scope,
+  activityScope,
+  blindSpotsScope,
+}) {
   const runId = randomUUID();
   const startedAt = new Date();
   const totalStarted = performance.now();
@@ -44,7 +51,8 @@ async function performSync({ userId, userEmail, scope, activityScope }) {
   // These paths are independent and each is already a targeted source query:
   // - Opportunities resolves its small SC target ID set before enrichment.
   // - Activities reads only the latest activity snapshot, not every history row.
-  const [opportunityDomain, activityDomain] = await Promise.all([
+  // - Blind Spots applies the separate AE/no-SC scope and writes its own cache.
+  const [opportunityDomain, activityDomain, blindSpotsDomain] = await Promise.all([
     measureDomain("opportunities", async () => {
       const result = await getScOpportunities(userId, userEmail, {
         ...scope,
@@ -65,6 +73,17 @@ async function performSync({ userId, userEmail, scope, activityScope }) {
         result,
         records: result.activities.length,
         syncedTargets: result.activities.length,
+      };
+    }),
+    measureDomain("blindSpots", async () => {
+      const result = await getBlindSpots(userId, userEmail, {
+        ...blindSpotsScope,
+        force: true,
+      });
+      return {
+        result,
+        records: result.opportunities.length,
+        syncedTargets: result.opportunities.length,
       };
     }),
   ]);
@@ -118,6 +137,7 @@ async function performSync({ userId, userEmail, scope, activityScope }) {
     domains: {
       opportunities: summarizeDomain(opportunityDomain),
       activities: summarizeDomain(activityDomain),
+      blindSpots: summarizeDomain(blindSpotsDomain),
       dispassionateReviews: summarizeDomain(reviewDomain),
       gongCalls: summarizeDomain(gongDomain),
     },

@@ -11,6 +11,9 @@ export function buildOpportunitiesQuery(filters = {}) {
     arrMin,
     opportunityIds,
     scUserId,
+    ownerEmails,
+    requireNoSc,
+    activePipelineOnly,
     closeDateFrom,
     closeDateTo,
   } = filters;
@@ -191,6 +194,31 @@ WHERE dim.RUN_DATE = (
   if (scUserId) {
     const scUserIdEscaped = scUserId.replace(/'/g, "''");
     conditions.push(`stg.NAME_OF_SC_C = '${scUserIdEscaped}'`);
+  }
+
+  // Owner sources expose names, while the settings UI stores stable Zendesk
+  // email addresses. Match the current USER_HISTORY name for each configured
+  // email before applying the Blind Spots scope.
+  if (ownerEmails && ownerEmails.length > 0) {
+    const emailList = ownerEmails
+      .map((email) => `'${email.replace(/'/g, "''").toLowerCase()}'`)
+      .join(", ");
+    conditions.push(`EXISTS (
+      SELECT 1
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY owner_user
+      WHERE LOWER(owner_user.EMAIL) IN (${emailList})
+        AND LOWER(owner_user.FULL_NAME) = LOWER(COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME))
+    )`);
+  }
+
+  if (requireNoSc) {
+    conditions.push(`(stg.NAME_OF_SC_C IS NULL OR TRIM(stg.NAME_OF_SC_C) = '')`);
+  }
+
+  if (activePipelineOnly) {
+    conditions.push(
+      `SUBSTRING(dim.OPPORTUNITY_STAGE_NAME, 1, 2) IN ('00', '01', '02', '03', '04', '05', '06', '07')`,
+    );
   }
 
   // Close month filter

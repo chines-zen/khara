@@ -28,6 +28,7 @@ import {
   useIsMutating,
 } from "@tanstack/react-query";
 import { usePreferredName, useTimezone } from "@/lib/preferences";
+import { useIsManager } from "@/hooks/use-is-manager";
 import {
   DataExpiredError,
   fetchOpportunities,
@@ -67,6 +68,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { fetchHiddenOpportunities } from "@/lib/api/hidden-opportunities";
+import { fetchBlindSpots } from "@/lib/api/blind-spots";
 import { fetchUserPreference } from "@/lib/api/user-preferences";
 import {
   buildPunchList,
@@ -109,6 +111,7 @@ function formatLastRefreshed(iso: string | undefined, timezone: string) {
 export function AppNav({ children }: { children?: ReactNode }) {
   const preferredName = usePreferredName();
   const timezone = useTimezone();
+  const isManager = useIsManager();
   const queryClient = useQueryClient();
   const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
     DEFAULT_PUNCH_LIST_SETTINGS,
@@ -127,7 +130,11 @@ export function AppNav({ children }: { children?: ReactNode }) {
   // opportunities pages). Mismatched retry settings on a shared key resolve by
   // observer registration order, and each retry of a failed fetch re-enters the
   // Snowflake connect path — which in EXTERNALBROWSER mode is a new SSO tab.
-  const { data, dataUpdatedAt, error: opportunitiesError } = useQuery({
+  const {
+    data,
+    dataUpdatedAt,
+    error: opportunitiesError,
+  } = useQuery({
     queryKey: ["opportunities"],
     queryFn: fetchOpportunities,
     retry: false,
@@ -137,6 +144,13 @@ export function AppNav({ children }: { children?: ReactNode }) {
   const { data: hiddenIds = [] } = useQuery({
     queryKey: ["hiddenOpportunities"],
     queryFn: fetchHiddenOpportunities,
+  });
+
+  const { data: blindSpotsData } = useQuery({
+    queryKey: ["blindSpots"],
+    queryFn: fetchBlindSpots,
+    enabled: !isManager,
+    retry: false,
   });
 
   const { data: syncPending = false } = useQuery({
@@ -165,24 +179,30 @@ export function AppNav({ children }: { children?: ReactNode }) {
     [data?.opportunities, hiddenIds, punchListSettings],
   );
 
+  const blindSpotsCount = blindSpotsData?.opportunities.length ?? 0;
+
   // The mutation state lives on the QueryClient, so isRefreshing reflects any
   // in-flight sync even after this AppNav instance remounts on tab navigation.
   const isRefreshing = useIsMutating({ mutationKey: REFRESH_MUTATION_KEY }) > 0;
   const autoSyncAttempted = useRef(false);
+  const [isFinishingSync, setIsFinishingSync] = useState(false);
 
   const { mutate: handleRefresh } = useMutation({
     mutationKey: REFRESH_MUTATION_KEY,
     mutationFn: async () => {
-      // The server waits until all four Snowflake mirrors have finished before
+      // The server waits until all five Snowflake mirrors have finished before
       // it resolves. That gives these cache-backed UI reads one completed scope
       // instead of refreshing opportunities now and Gong/D-Score data later on
       // a detail page.
       await syncSnowflakeData();
+      setIsFinishingSync(true);
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
 
       // Data now matches current settings - clear the "needs re-sync" warning.
       await setDataSyncPending(false);
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ["opportunities"] }),
+        queryClient.refetchQueries({ queryKey: ["blindSpots"] }),
         queryClient.invalidateQueries({ queryKey: ["activities"] }),
         queryClient.invalidateQueries({ queryKey: ["dispassionateReviews"] }),
         queryClient.invalidateQueries({ queryKey: ["gongCalls"] }),
@@ -190,6 +210,7 @@ export function AppNav({ children }: { children?: ReactNode }) {
           queryKey: DATA_SYNC_PENDING_QUERY_KEY,
         }),
       ]);
+      setIsFinishingSync(false);
     },
   });
 
@@ -216,9 +237,13 @@ export function AppNav({ children }: { children?: ReactNode }) {
   return (
     <SidebarProvider
       defaultOpen
-      style={{ "--sidebar-width": "10rem" } as CSSProperties}
+      style={{ "--sidebar-width": "10.5rem" } as CSSProperties}
     >
-      <AppSidebar punchListCount={punchListCount} />
+      <AppSidebar
+        punchListCount={punchListCount}
+        blindSpotsCount={blindSpotsCount}
+        isManager={isManager}
+      />
       <div className="flex min-h-svh min-w-0 flex-1 flex-col bg-zd-bg">
         <AppHeader
           preferredName={preferredName}
@@ -229,13 +254,22 @@ export function AppNav({ children }: { children?: ReactNode }) {
         />
         <div className="min-w-0 flex-1">{children}</div>
       </div>
-      <DataSyncProgressDialog open={isRefreshing} />
+      <DataSyncProgressDialog open={isRefreshing} finishing={isFinishingSync} />
     </SidebarProvider>
   );
 }
 
-function DataSyncProgressDialog({ open }: { open: boolean }) {
+function DataSyncProgressDialog({
+  open,
+  finishing,
+}: {
+  open: boolean;
+  finishing: boolean;
+}) {
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [finishingStartedAt, setFinishingStartedAt] = useState<number | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!open) {
@@ -251,6 +285,14 @@ function DataSyncProgressDialog({ open }: { open: boolean }) {
     return () => window.clearInterval(intervalId);
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !finishing) {
+      setFinishingStartedAt(null);
+      return;
+    }
+    setFinishingStartedAt(Date.now());
+  }, [open, finishing]);
+
   const stepDurationsMs = SYNC_STEPS.map(
     (step) =>
       (step.weight / SYNC_STEP_WEIGHT_TOTAL) * SYNC_PROGRESS_DURATION_MS,
@@ -261,13 +303,24 @@ function DataSyncProgressDialog({ open }: { open: boolean }) {
     if (!isActive) elapsedBeforeStepMs += durationMs;
     return isActive;
   });
-  const currentStepIndex =
-    activeStep === -1 ? SYNC_STEPS.length - 1 : activeStep;
-  const overallProgress = Math.min(
+  const naturalProgress = Math.min(
     100,
     Math.round((elapsedMs / SYNC_PROGRESS_DURATION_MS) * 100),
   );
-  const isFinalizing = elapsedMs >= SYNC_PROGRESS_DURATION_MS;
+  const finishingProgress = finishingStartedAt
+    ? Math.min(1, (Date.now() - finishingStartedAt) / 1000)
+    : 0;
+  const overallProgress = finishing
+    ? Math.min(
+        100,
+        Math.round(
+          naturalProgress + (100 - naturalProgress) * finishingProgress,
+        ),
+      )
+    : naturalProgress;
+  const currentStepIndex =
+    finishing || activeStep === -1 ? SYNC_STEPS.length - 1 : activeStep;
+  const isFinalizing = finishing || elapsedMs >= SYNC_PROGRESS_DURATION_MS;
 
   return (
     <AlertDialog open={open}>
@@ -293,13 +346,15 @@ function DataSyncProgressDialog({ open }: { open: boolean }) {
             const stepProgress = isComplete
               ? 100
               : isActive
-                ? Math.min(
-                    100,
-                    Math.round(
-                      ((elapsedMs - stepStartMs) / stepDurationsMs[index]) *
-                        100,
-                    ),
-                  )
+                ? finishing
+                  ? overallProgress
+                  : Math.min(
+                      100,
+                      Math.round(
+                        ((elapsedMs - stepStartMs) / stepDurationsMs[index]) *
+                          100,
+                      ),
+                    )
                 : 0;
 
             return (
@@ -353,7 +408,15 @@ function DataSyncProgressDialog({ open }: { open: boolean }) {
   );
 }
 
-function AppSidebar({ punchListCount }: { punchListCount: number }) {
+function AppSidebar({
+  punchListCount,
+  blindSpotsCount,
+  isManager,
+}: {
+  punchListCount: number;
+  blindSpotsCount: number;
+  isManager: boolean;
+}) {
   const { state } = useSidebar();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -434,18 +497,29 @@ function AppSidebar({ punchListCount }: { punchListCount: number }) {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === "/blind-spots"}
-                  tooltip="Blind Spots"
-                >
-                  <Link to="/blind-spots">
-                    <Glasses />
-                    <span>Blind Spots</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {!isManager && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/blind-spots"}
+                    tooltip="Blind Spots"
+                  >
+                    <Link to="/blind-spots">
+                      <Glasses />
+                      <span className="whitespace-nowrap">
+                        Blind Spots
+                        {blindSpotsCount > 0 ? ` (${blindSpotsCount})` : ""}
+                      </span>
+                      {blindSpotsCount > 0 && state === "collapsed" && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute bottom-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-zd-dark"
+                        />
+                      )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
 
               <SidebarMenuItem>
                 <SidebarMenuButton

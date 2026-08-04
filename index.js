@@ -42,6 +42,7 @@ import {
   cleanupExpiredScCache,
   getLastScCacheSync,
 } from "./services/sc-opportunities-cache.js";
+import { cleanupExpiredBlindSpotsCache } from "./services/blind-spots-cache.js";
 import {
   getActivities,
   invalidateActivitiesCache,
@@ -53,7 +54,14 @@ import {
 } from "./services/gong-calls-cache.js";
 import { syncScopedSnowflakeData } from "./services/snowflake-data-sync.js";
 import { resolveScUserId } from "./services/sc-lookup.js";
-import { getEffectiveOppScope } from "./services/opp-scope.js";
+import {
+  getEffectiveOppScope,
+  getEffectiveBlindSpotsScope,
+} from "./services/opp-scope.js";
+import {
+  getBlindSpots,
+  setBlindSpotReviewed,
+} from "./services/blind-spots-cache.js";
 import { setEnvVar } from "./services/env-writer.js";
 import { validateBedrockToken, MODEL_ID } from "./src/lib/claude-ai.server.js";
 
@@ -81,7 +89,9 @@ initializeDatabase()
     console.log("✅ Database initialized");
 
     // Clean up expired summaries on startup
-    return cleanupExpiredSummaries().then(() => cleanupExpiredScCache());
+    return cleanupExpiredSummaries()
+      .then(() => cleanupExpiredScCache())
+      .then(() => cleanupExpiredBlindSpotsCache());
   })
   .catch((err) => {
     console.error("❌ Failed to initialize database:", err.message);
@@ -496,6 +506,77 @@ app.delete(
   },
 );
 
+// GET /api/blind-spots - Individual-SC-only opps owned by configured AEs with
+// no SC assignment, using an independent ARR/close-date scope.
+app.get("/api/blind-spots", authenticateWithPomerium, async (req, res) => {
+  try {
+    if (req.user.is_manager) {
+      return res.status(403).json({
+        error: "Blind Spots are available to individual SCs only",
+      });
+    }
+
+    const scope = await getEffectiveBlindSpotsScope(req.user.id);
+    const result = await getBlindSpots(req.user.id, req.user.email, scope);
+    if (!result.configured) {
+      return res.json({
+        opportunities: [],
+        reviewedOpportunityIds: [],
+        metadata: { configured: false, count: 0 },
+      });
+    }
+
+    res.json({
+      opportunities: result.opportunities,
+      reviewedOpportunityIds: result.reviewedOpportunityIds,
+      metadata: {
+        configured: true,
+        count: result.opportunities.length,
+        cached: result.cached,
+        cachedAt: result.cachedAt,
+        expiresAt: result.expiresAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching Blind Spots:", error);
+    res.status(500).json({
+      error: "Failed to fetch Blind Spots",
+      details: error.message,
+    });
+  }
+});
+
+app.put(
+  "/api/blind-spots/:opportunityId/reviewed",
+  authenticateWithPomerium,
+  async (req, res) => {
+    try {
+      if (req.user.is_manager) {
+        return res.status(403).json({
+          error: "Blind Spots are available to individual SCs only",
+        });
+      }
+
+      if (typeof req.body?.reviewed !== "boolean") {
+        return res.status(400).json({ error: '"reviewed" must be a boolean' });
+      }
+
+      await setBlindSpotReviewed(
+        req.user.id,
+        req.params.opportunityId,
+        req.body.reviewed,
+      );
+      res.json({ success: true, reviewed: req.body.reviewed });
+    } catch (error) {
+      console.error("Error updating Blind Spot review state:", error);
+      res.status(500).json({
+        error: "Failed to update Blind Spot review state",
+        details: error.message,
+      });
+    }
+  },
+);
+
 // DELETE /api/gong-calls/cache - Force the next Gong request to resync all
 // opportunities from Snowflake instead of using the 24h per-opportunity TTL.
 app.delete(
@@ -524,8 +605,8 @@ app.delete(
 );
 
 // POST /api/data-sync - Refresh all scoped Snowflake domains as one completed
-// run. The response is sent only after Opportunities, Activities, D-Score
-// reviews, and Gong calls have all been mirrored locally. The UI refetches its
+// run. The response is sent only after Opportunities, Blind Spots, Activities,
+// D-Score reviews, and Gong calls have all been mirrored locally. The UI refetches its
 // normal cache-backed reads only after this response, avoiding the former state
 // where fresh opportunities could be shown beside day-old detail data.
 app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
@@ -542,6 +623,10 @@ app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
       scope.scUserIds = [];
     }
     scope.sfdcUserId = req.user.sfdc_user_id ?? null;
+
+    const blindSpotsScope = req.user.is_manager
+      ? { ownerEmails: [] }
+      : await getEffectiveBlindSpotsScope(req.user.id);
 
     if (req.user.is_manager && scope.scEmails.length === 0) {
       return res.status(428).json({
@@ -561,6 +646,7 @@ app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
         scUserIds: scope.scUserIds,
         sfdcUserId: scope.sfdcUserId,
       },
+      blindSpotsScope,
     });
 
     res.json({ success: true, ...result });

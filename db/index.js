@@ -163,6 +163,48 @@ export async function initializeDatabase() {
       CREATE INDEX IF NOT EXISTS idx_sc_cache_expires ON sc_opportunities_cache(expires_at)
     `);
 
+    // Blind Spots cache - 12-hour TTL per user. This is separate from the
+    // normal SC opportunity cache because it has an independent AE/date/ARR
+    // scope and must not overwrite the user's main opportunity snapshot.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blind_spots_cache (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        opportunities_data JSONB NOT NULL,
+        scope JSONB,
+        cached_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL,
+        UNIQUE(user_id)
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_blind_spots_cache_user_id
+      ON blind_spots_cache(user_id)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_blind_spots_cache_expires
+      ON blind_spots_cache(expires_at)
+    `);
+
+    // Review state is intentionally separate from blind_spots_cache so a
+    // Snowflake refresh can replace the opportunity snapshot without clearing
+    // a user's reviewed decisions.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blind_spot_reviews (
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        opportunity_id VARCHAR(255) NOT NULL,
+        reviewed_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id, opportunity_id)
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_blind_spot_reviews_user_id
+      ON blind_spot_reviews(user_id)
+    `);
+
     // Activities - local mirror of Snowflake's SA_ACTIVITY_DAILY_SNAPSHOT,
     // deduped to one row per activity id (see services/activities-cache.js)
     await client.query(`

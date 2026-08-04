@@ -6,6 +6,7 @@ import { DEFAULT_CLOSE_DATE_PRESET, resolveCloseDatePreset, resolveCloseDateRang
 export const DEFAULT_ARR_THRESHOLD = 12000;
 
 const PREFERENCE_KEY = 'oppScopeSettings';
+const BLIND_SPOTS_PREFERENCE_KEY = 'blindSpotsSettings';
 
 /**
  * Seed a user's default opportunity scope preference (ARR threshold + fiscal-year
@@ -31,6 +32,24 @@ export async function ensureDefaultOppScope(userId) {
      VALUES ($1, $2, $3, NOW())
      ON CONFLICT (user_id, preference_key) DO NOTHING`,
     [userId, PREFERENCE_KEY, JSON.stringify(defaults)]
+  );
+
+  // Seed Blind Spots independently from the main opportunity scope so the
+  // first unified sync always has an explicit, intentional scope. This is
+  // idempotent and never overwrites a user's later Blind Spots settings.
+  const blindSpotsDefaults = {
+    ownerEmails: [],
+    arrThreshold: DEFAULT_ARR_THRESHOLD,
+    closeDatePreset: DEFAULT_CLOSE_DATE_PRESET,
+    closeDateFrom: null,
+    closeDateTo: null,
+  };
+
+  await pool.query(
+    `INSERT INTO user_preferences (user_id, preference_key, preference_value, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (user_id, preference_key) DO NOTHING`,
+    [userId, BLIND_SPOTS_PREFERENCE_KEY, JSON.stringify(blindSpotsDefaults)]
   );
 }
 
@@ -66,6 +85,25 @@ export async function getEffectiveOppScope(userId) {
     // resolveScopeUserIds). Empty when unresolved or when the emails changed,
     // in which case the caller falls back to a live USER_HISTORY lookup.
     scUserIds: matchesCachedEmails(saved, scEmails) ? saved.scUserIds : [],
+  };
+}
+
+/** Resolve the independent individual-SC Blind Spots scope. */
+export async function getEffectiveBlindSpotsScope(userId) {
+  const saved = await getUserPreference(userId, BLIND_SPOTS_PREFERENCE_KEY);
+  const preset = resolveCloseDatePreset(saved);
+  const range = resolveCloseDateRange(
+    preset,
+    saved?.closeDateFrom ?? null,
+    saved?.closeDateTo ?? null,
+  );
+
+  return {
+    ownerEmails: Array.isArray(saved?.ownerEmails) ? saved.ownerEmails : [],
+    arrThreshold: saved?.arrThreshold ?? DEFAULT_ARR_THRESHOLD,
+    closeDatePreset: preset,
+    closeDateFrom: range.from,
+    closeDateTo: range.to,
   };
 }
 

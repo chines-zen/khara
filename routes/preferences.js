@@ -13,6 +13,7 @@ const router = express.Router();
 // Saving this key can carry a manager's Sales Engineer list, whose emails we
 // resolve to Snowflake USER_IDs once here so the data-refresh paths don't have to.
 const OPP_SCOPE_KEY = 'oppScopeSettings';
+const BLIND_SPOTS_SCOPE_KEY = 'blindSpotsSettings';
 
 /**
  * GET /api/user-preferences
@@ -63,6 +64,12 @@ router.put('/:key', async (req, res) => {
 
     if (value === undefined) {
       return res.status(400).json({ error: 'Missing "value" in request body' });
+    }
+
+    if (key === BLIND_SPOTS_SCOPE_KEY && req.user.is_manager) {
+      return res.status(403).json({
+        error: 'Blind Spots settings are available to individual SCs only',
+      });
     }
 
     const result = await setUserPreference(userId, key, value);
