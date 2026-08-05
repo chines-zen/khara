@@ -17,7 +17,7 @@ const CACHE_TTL_HOURS = 12;
  *   scEmails (manager-only): when set, opportunities are scoped to these SCs
  *   instead of userEmail's own identity.
  *   scUserIds (manager-only): USER_IDs already resolved for scEmails, so the
- *   refresh path doesn't re-query USER_HISTORY. Partial/absent entries are
+ *   refresh path doesn't re-query role history. Partial/absent entries are
  *   resolved on demand.
  *   sfdcUserId: the requesting user's own cached USER_ID (users.sfdc_user_id),
  *   used when scEmails is empty. Avoids an identity query per cache refresh.
@@ -259,14 +259,14 @@ function normalizeStage(stage) {
 
 export function transformOpportunity(row) {
   return {
-    id: row.ID,
-    name: row.NAME,
+    id: row.ID || "",
+    name: row.NAME || "Unnamed Opportunity",
     account: row.ACCOUNT || 'Unknown Account',
     stage: normalizeStage(row.STAGE) || 'Unknown',
     type: row.TYPE,
     territory: row.TERRITORY,
     amount: row.AMOUNT || 0,
-    closeDate: row.CLOSE_DATE ? row.CLOSE_DATE.toISOString().split('T')[0] : null,
+    closeDate: row.CLOSE_DATE ? row.CLOSE_DATE.toISOString().split('T')[0] : '',
     createdDate: row.CREATED_DATE ? row.CREATED_DATE.toISOString().split('T')[0] : null,
     owner: row.OWNER || 'Not Available',
     scNotes: row.SC_NOTES || '',

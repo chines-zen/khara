@@ -83,7 +83,7 @@ export async function getEffectiveOppScope(userId) {
     scEmails,
     // USER_IDs cached from a previous resolution of exactly this email set (see
     // resolveScopeUserIds). Empty when unresolved or when the emails changed,
-    // in which case the caller falls back to a live USER_HISTORY lookup.
+    // in which case the caller falls back to a live role-history lookup.
     scUserIds: matchesCachedEmails(saved, scEmails) ? saved.scUserIds : [],
   };
 }
@@ -126,14 +126,14 @@ function matchesCachedEmails(saved, scEmails) {
 /**
  * Resolve a manager's Sales Engineer emails to Snowflake USER_IDs and cache them
  * on the saved scope preference, so the opportunity/activity refresh paths don't
- * re-query USER_HISTORY on every cache miss.
+ * re-query role history on every cache miss.
  *
  * Called when a manager saves their SE list (see routes/preferences.js), which is
  * also where an unresolvable email becomes visible: the returned counts let the
  * UI report "3 of 4 emails matched" instead of silently dropping the typo.
  *
  * Only successful resolutions are cached. Emails that don't resolve — a typo, or
- * a new hire without a USER_HISTORY record yet — are left out of scUserIdsFor, so
+ * a new hire without a role-history record yet — are left out of scUserIdsFor, so
  * the next save (or refresh) retries them rather than caching them as absent.
  *
  * @param {number} userId

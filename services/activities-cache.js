@@ -26,7 +26,7 @@ const CACHE_TTL_HOURS = 12;
  *   snapshot for the fiscal-year date range, so known and newly scoped SEs take
  *   the same efficient path.
  *   scUserIds / sfdcUserId are pre-resolved USER_IDs (see sc-opportunities-cache.js)
- *   that let the sync skip the USER_HISTORY identity query.
+ *   that let the sync skip the role-history identity query.
  */
 export async function getActivities(userEmail, scope = {}) {
   const { scEmails = [], scUserIds = [], sfdcUserId = null, force = false } = scope;

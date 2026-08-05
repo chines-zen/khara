@@ -39,6 +39,12 @@ async function resetDevSession() {
   return response.json();
 }
 
+async function fetchSyncRuns(): Promise<SyncHistory> {
+  const response = await fetch("/api/sync-runs", { credentials: "include" });
+  if (!response.ok) throw new Error("Failed to fetch sync history");
+  return response.json();
+}
+
 const CLOSE_DATE_PRESET_LABELS: Record<string, string> = {
   current_quarter: "Current fiscal quarter",
   current_and_next_quarter: "Current + next fiscal quarter",
@@ -53,6 +59,26 @@ type LastSyncScope = {
   closeDateTo?: string | null;
   scEmails?: string[] | null;
 };
+
+type SyncDomain = {
+  domain: string;
+  status: string;
+  records: number;
+  syncedTargets: number;
+  error: string | null;
+};
+
+type SyncRun = {
+  id: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  error: string | null;
+  domains: SyncDomain[];
+};
+
+type SyncHistory = { runs: SyncRun[] };
 
 function formatArr(value?: number | null) {
   if (value == null) return "—";
@@ -107,6 +133,12 @@ function AdminPage() {
     queryKey: aiBackendKey,
     queryFn: fetchAiBackend,
     enabled: devMode,
+  });
+
+  const { data: syncHistory, isLoading: syncHistoryLoading } = useQuery({
+    queryKey: ["sync-history"],
+    queryFn: fetchSyncRuns,
+    refetchInterval: 30000,
   });
 
   const clearToken = useMutation({
@@ -347,6 +379,48 @@ function AdminPage() {
             )}
           </div>
         )}
+
+        <div className="bg-white border border-zd-border rounded-lg p-6 shadow-sm">
+          <h2 className="text-lg font-semibold mb-4">Recent Data Syncs</h2>
+          {syncHistoryLoading ? (
+            <div className="text-sm text-zd-teal/50">Loading sync history…</div>
+          ) : syncHistory?.runs?.length ? (
+            <div className="space-y-3">
+              {syncHistory.runs.map((run) => (
+                <div
+                  key={run.id}
+                  className="rounded border border-zd-border bg-zd-bg/40 p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold capitalize">
+                      {run.status}
+                    </span>
+                    <span className="text-xs text-zd-teal/60">
+                      {new Date(run.started_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    {(run.domains ?? []).map((domain) => (
+                      <span
+                        key={domain.domain}
+                        className="rounded bg-white px-2 py-1 text-zd-teal/80"
+                      >
+                        {domain.domain}: {domain.status} ({domain.records})
+                      </span>
+                    ))}
+                  </div>
+                  {run.error && (
+                    <div className="mt-2 text-xs text-red-600">{run.error}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-zd-teal/60">
+              No syncs recorded yet.
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

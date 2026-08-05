@@ -1,5 +1,6 @@
 import pg from "pg";
 const { Pool } = pg;
+const CURRENT_SCHEMA_VERSION = 2;
 
 // PostgreSQL connection pool
 export const pool = new Pool({
@@ -34,6 +35,30 @@ export async function initializeDatabase() {
 
     await client.query("BEGIN");
 
+    // Serialize schema changes across multiple local app processes and keep a
+    // durable record of which migrations have completed. The existing schema
+    // block below is migration 1 (the baseline for databases created before
+    // versioned migrations existed).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        applied_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query("SELECT pg_advisory_xact_lock(9172451)");
+    const migrationResult = await client.query(
+      "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations",
+    );
+    const currentVersion = Number(migrationResult.rows[0].version);
+    if (currentVersion > CURRENT_SCHEMA_VERSION) {
+      throw new Error(
+        `Database schema version ${currentVersion} is newer than this app supports (max ${CURRENT_SCHEMA_VERSION}). Update KHARA before starting it.`,
+      );
+    }
+
+    if (currentVersion < 1) {
+
     // Users table - store SSO user info
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -57,7 +82,7 @@ export async function initializeDatabase() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS is_manager BOOLEAN
     `);
 
-    // sfdc_user_id: the user's Snowflake/Salesforce USER_ID from USER_HISTORY,
+    // sfdc_user_id: the user's Salesforce USER_ID from sales employee role history,
     // resolved once alongside is_manager and cached here. This is what scopes
     // the opportunity/activity queries, so persisting it keeps a cache refresh
     // to a single Snowflake call instead of re-resolving the identity first.
@@ -381,6 +406,59 @@ export async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS cache_version INTEGER NOT NULL DEFAULT 1
     `);
 
+      await client.query(
+        `INSERT INTO schema_migrations (version, name) VALUES (1, 'initial_schema')`,
+      );
+    }
+
+    if (currentVersion < 2) {
+      await client.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS sync_runs (
+          id UUID PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'succeeded', 'partial', 'failed')),
+          started_at TIMESTAMP NOT NULL,
+          completed_at TIMESTAMP,
+          duration_ms INTEGER,
+          scope JSONB,
+          error TEXT
+        )
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS sync_run_domains (
+          id BIGSERIAL PRIMARY KEY,
+          sync_run_id UUID NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE,
+          domain VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+          started_at TIMESTAMP NOT NULL,
+          completed_at TIMESTAMP,
+          duration_ms INTEGER,
+          records INTEGER NOT NULL DEFAULT 0,
+          synced_targets INTEGER NOT NULL DEFAULT 0,
+          error TEXT,
+          UNIQUE(sync_run_id, domain)
+        )
+      `);
+
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS idx_sync_runs_user_started ON sync_runs(user_id, started_at DESC)",
+      );
+      await client.query(
+        "CREATE INDEX IF NOT EXISTS idx_sync_run_domains_run ON sync_run_domains(sync_run_id)",
+      );
+      await client.query(
+        `INSERT INTO schema_migrations (version, name) VALUES (2, 'onboarding_and_sync_runs')`,
+      );
+    }
+
+    await assertRequiredSchema(client);
+
     await client.query("COMMIT");
 
     console.log("✅ Database tables initialized successfully");
@@ -390,6 +468,70 @@ export async function initializeDatabase() {
     throw error;
   } finally {
     client.release();
+  }
+}
+
+async function assertRequiredSchema(client) {
+  const requiredColumns = {
+    users: {
+      id: "integer",
+      email: "character varying",
+      sub: "character varying",
+      onboarding_complete: "boolean",
+    },
+    user_preferences: {
+      user_id: "integer",
+      preference_key: "character varying",
+      preference_value: "jsonb",
+    },
+    sc_opportunities_cache: {
+      user_id: "integer",
+      opportunities_data: "jsonb",
+      scope: "jsonb",
+    },
+    sync_runs: {
+      id: "uuid",
+      user_id: "integer",
+      status: "character varying",
+      scope: "jsonb",
+    },
+    sync_run_domains: {
+      sync_run_id: "uuid",
+      domain: "character varying",
+      status: "character varying",
+      records: "integer",
+    },
+  };
+  const result = await client.query(
+    `SELECT table_name, column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = ANY($1::TEXT[])`,
+    [Object.keys(requiredColumns)],
+  );
+  const actual = new Map(
+    result.rows.map((row) => [
+      `${row.table_name}.${row.column_name}`,
+      row.data_type,
+    ]),
+  );
+  const missing = [];
+  const mismatched = [];
+  for (const [table, columns] of Object.entries(requiredColumns)) {
+    for (const [column, expectedType] of Object.entries(columns)) {
+      const key = `${table}.${column}`;
+      const actualType = actual.get(key);
+      if (!actualType) missing.push(key);
+      else if (actualType !== expectedType) {
+        mismatched.push(`${key} (${actualType}, expected ${expectedType})`);
+      }
+    }
+  }
+  if (missing.length > 0 || mismatched.length > 0) {
+    throw new Error(
+      `Database schema validation failed. Missing: ${missing.join(", ") || "none"}. ` +
+        `Type mismatches: ${mismatched.join(", ") || "none"}.`,
+    );
   }
 }
 

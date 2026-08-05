@@ -86,7 +86,7 @@ often masked or empty. See `buildScOpportunitiesQuery` /
 **Account name** — `FOUNDATIONAL.CUSTOMER_STAGING.STG_SALESFORCE_ACCOUNT_SCD2` (alias `acc`)
 - Join `stg.ACCOUNT_ID = acc.ID` + the SCD2 sentinel. Fields: `NAME`, `ASSIGNED_TERRITORY_ID_C` (→ roster).
 
-**SC full name** — `FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY` (alias `sc_user`)
+**SC full name** — `FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY` (alias `sc_user`)
 - Join `stg.NAME_OF_SC_C = sc_user.USER_ID`. Dedupe with `QUALIFY ROW_NUMBER() OVER (PARTITION BY USER_ID ...) = 1`.
 - This table is also the **identity resolver** (see §4).
 
@@ -215,12 +215,12 @@ rows. Consequences:
 
 ## 4. Identity & org structure
 
-`FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY` is the people table — it maps
-between email, Snowflake `USER_ID`, and reporting lines. See
+`FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY` is the people table — it maps
+between email, Salesforce `SFDC_USER_ID`, and reporting lines. See
 [`services/sc-lookup.js`](services/sc-lookup.js).
 
-- **Email → SC identity:** `WHERE LOWER(EMAIL) = LOWER(<email>)` → `USER_ID`, `FULL_NAME`. Dedupe per `EMAIL`. The resulting `USER_ID` is what scopes opportunities (`stg.NAME_OF_SC_C`) and, indirectly, activities.
-- **Manager detection:** don't trust `ROLE_TYPE` (managers and ICs share codes). Instead check whether anyone's current `MANAGER_EMPLOYEE_ID` points back at this person's `EMPLOYEE_ID` (with `END_DATE >= CURRENT_DATE`). A manager scoping to their team resolves each report's email to a `USER_ID` and passes the set into the opportunity query.
+- **Email → SC identity:** `WHERE LOWER(SFDC_USER_EMAIL) = LOWER(<email>)` → `SFDC_USER_ID`, `FULL_NAME`. Dedupe per email and prefer the current/latest role row. The resulting `SFDC_USER_ID` is what scopes opportunities (`stg.NAME_OF_SC_C`) and, indirectly, activities.
+- **Manager detection:** don't trust `ROLE_TYPE` (managers and ICs share codes). Instead check whether anyone's current `MANAGER_EMPLOYEE_ID` points back at this person's `EMPLOYEE_ID` (`XC_ROLE_END_DATE IS NULL OR XC_ROLE_END_DATE >= CURRENT_DATE`). A manager scoping to their team resolves each report's email to a `SFDC_USER_ID` and passes the set into the opportunity query.
 
 ---
 
@@ -262,4 +262,4 @@ These are the reusable lessons, independent of the specific tables:
 | Opps | `FUNCTIONAL.GTM_SALES_OPS.ROSTER` | Territory name |
 | D-Score | `CLEANSED.SALESFORCE.SALESFORCE_DISPASSIONATE_REVIEW_C_SCD2` | Dispassionate reviews |
 | Activities | `FUNCTIONAL.GTM_SALES_OPS.SA_ACTIVITY_DAILY_SNAPSHOT` | SE activities |
-| Identity | `FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY` | Email ↔ USER_ID, reporting lines |
+| Identity | `FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY` | Email ↔ SFDC_USER_ID, reporting lines |

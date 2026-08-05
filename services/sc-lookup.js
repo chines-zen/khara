@@ -5,22 +5,23 @@ function quote(email) {
 }
 
 /**
- * Resolve everything we need about a logged-in user from USER_HISTORY in a
- * single round trip: their SC identity (USER_ID / FULL_NAME) *and* whether they
+ * Resolve everything we need about a logged-in user from the current sales
+ * employee role history in a single round trip: their Salesforce identity
+ * (SFDC_USER_ID / FULL_NAME) *and* whether they
  * have direct reports. Previously these were two separate queries against the
  * same table on every cold login (resolveScUserId + checkHasDirectReports),
  * which is the bulk of the login-time Snowflake traffic.
  *
  * The two lookups keep their original, deliberately different semantics rather
  * than being folded into one row:
- *   - identity: no END_DATE filter, deduped per EMAIL by lowest USER_ID. A
- *     departed SE still resolves, so their cached opps keep working.
- *   - current_record: END_DATE >= CURRENT_DATE, newest first. Manager status is
+ *   - identity: no role-end-date filter, deduped per email by the newest role.
+ *     A departed SE still resolves, so their cached opps keep working.
+ *   - current_record: XC_ROLE_END_DATE is open or in the future. Manager status is
  *     only meaningful for a currently-employed record.
  *
  * @param {string} email
  * @returns {Promise<{ userId: string, fullName: string, isManager: boolean | null } | null>}
- *   null if this email has no USER_HISTORY record at all. isManager is null when
+ *   null if this email has no role-history record at all. isManager is null when
  *   there's no *current* record (e.g. not yet provisioned as an SC), matching
  *   checkHasDirectReports' contract.
  */
@@ -28,27 +29,36 @@ export async function resolveUserIdentity(email) {
   const safeEmail = quote(email);
   const sql = `
     WITH identity AS (
-      SELECT USER_ID, FULL_NAME
-      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-      WHERE LOWER(EMAIL) = LOWER('${safeEmail}')
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY USER_ID) = 1
+      SELECT SFDC_USER_ID AS USER_ID, FULL_NAME
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+      WHERE LOWER(SFDC_USER_EMAIL) = LOWER('${safeEmail}')
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SFDC_USER_EMAIL)
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST,
+                 SFDC_USER_ID
+      ) = 1
     ),
     current_record AS (
       SELECT EMPLOYEE_ID
-      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-      WHERE LOWER(EMAIL) = LOWER('${safeEmail}')
-        AND END_DATE >= CURRENT_DATE
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY END_DATE DESC) = 1
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+      WHERE LOWER(SFDC_USER_EMAIL) = LOWER('${safeEmail}')
+        AND (XC_ROLE_END_DATE IS NULL OR XC_ROLE_END_DATE >= CURRENT_DATE)
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SFDC_USER_EMAIL)
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST
+      ) = 1
     )
     SELECT
       identity.USER_ID,
       identity.FULL_NAME,
       (SELECT COUNT(*) FROM current_record) AS HAS_CURRENT_RECORD,
       (
-        SELECT COUNT(DISTINCT uh.USER_ID)
-        FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY uh
+        SELECT COUNT(DISTINCT uh.SFDC_USER_ID)
+        FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY uh
         WHERE uh.MANAGER_EMPLOYEE_ID = (SELECT EMPLOYEE_ID FROM current_record)
-          AND uh.END_DATE >= CURRENT_DATE
+          AND (uh.XC_ROLE_END_DATE IS NULL OR uh.XC_ROLE_END_DATE >= CURRENT_DATE)
       ) AS DIRECT_REPORTS
     FROM identity
   `;
@@ -83,10 +93,15 @@ export async function resolveUserIdentity(email) {
  */
 export async function resolveScUserId(email) {
   const sql = `
-    SELECT USER_ID, FULL_NAME, EMAIL
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-    WHERE LOWER(EMAIL) = LOWER('${email.replace(/'/g, "''")}')
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY USER_ID) = 1
+    SELECT SFDC_USER_ID AS USER_ID, FULL_NAME, SFDC_USER_EMAIL AS EMAIL
+    FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+    WHERE LOWER(SFDC_USER_EMAIL) = LOWER('${email.replace(/'/g, "''")}')
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY LOWER(SFDC_USER_EMAIL)
+      ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+               XC_ROLE_START_DATE DESC NULLS LAST,
+               SFDC_USER_ID
+    ) = 1
   `;
 
   const rows = await executeQuery(sql, undefined, email);
@@ -101,7 +116,7 @@ export async function resolveScUserId(email) {
 /**
  * Resolve multiple emails to their Snowflake SC USER_IDs in one query (used
  * for the manager-only "Sales Engineers" scoping — see services/opp-scope.js).
- * Emails with no current USER_HISTORY record are silently omitted.
+ * Emails with no current role-history record are silently omitted.
  * @param {string[]} emails
  * @param {string} requestingEmail - identity to run the Snowflake query as
  * @returns {Promise<string[]>}
@@ -115,10 +130,16 @@ export async function resolveScUserIds(emails, requestingEmail) {
     .map((e) => `LOWER('${e.replace(/'/g, "''")}')`)
     .join(", ");
   const sql = `
-    SELECT USER_ID, EMAIL
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-    WHERE LOWER(EMAIL) IN (${emailList})
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY USER_ID) = 1
+    SELECT SFDC_USER_ID AS USER_ID, SFDC_USER_EMAIL AS EMAIL
+    FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+    WHERE LOWER(SFDC_USER_EMAIL) IN (${emailList})
+      AND (XC_ROLE_END_DATE IS NULL OR XC_ROLE_END_DATE >= CURRENT_DATE)
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY LOWER(SFDC_USER_EMAIL)
+      ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+               XC_ROLE_START_DATE DESC NULLS LAST,
+               SFDC_USER_ID
+    ) = 1
   `;
 
   const rows = await executeQuery(sql, undefined, requestingEmail);
@@ -127,7 +148,7 @@ export async function resolveScUserIds(emails, requestingEmail) {
 
 /**
  * Resolve a batch of onboarding emails and return the display data needed by
- * the setup UI. Only currently-employed USER_HISTORY records count as found.
+ * the setup UI. Only currently-employed role-history records count as found.
  */
 export async function resolveOnboardingUsers(emails, requestingEmail) {
   if (emails.length === 0) return [];
@@ -142,21 +163,28 @@ export async function resolveOnboardingUsers(emails, requestingEmail) {
       FROM VALUES ${emailValues}
     ),
     target AS (
-      SELECT r.email, uh.USER_ID, uh.FULL_NAME, uh.EMPLOYEE_ID,
+      SELECT r.email, uh.SFDC_USER_ID AS USER_ID, uh.FULL_NAME, uh.EMPLOYEE_ID,
              ROW_NUMBER() OVER (
-               PARTITION BY LOWER(r.email) ORDER BY uh.END_DATE DESC, uh.USER_ID
+               PARTITION BY LOWER(r.email)
+               ORDER BY uh.XC_ROLE_END_DATE DESC NULLS LAST,
+                        uh.XC_ROLE_START_DATE DESC NULLS LAST,
+                        uh.SFDC_USER_ID
              ) AS rn
       FROM requested r
-      JOIN FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY uh
-        ON LOWER(uh.EMAIL) = LOWER(r.email)
-       AND uh.END_DATE >= CURRENT_DATE
+      JOIN FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY uh
+        ON LOWER(uh.SFDC_USER_EMAIL) = LOWER(r.email)
+       AND (uh.XC_ROLE_END_DATE IS NULL OR uh.XC_ROLE_END_DATE >= CURRENT_DATE)
     ),
     requester AS (
       SELECT EMPLOYEE_ID
-      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-      WHERE LOWER(EMAIL) = LOWER('${safeRequestingEmail}')
-        AND END_DATE >= CURRENT_DATE
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY END_DATE DESC) = 1
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+      WHERE LOWER(SFDC_USER_EMAIL) = LOWER('${safeRequestingEmail}')
+        AND (XC_ROLE_END_DATE IS NULL OR XC_ROLE_END_DATE >= CURRENT_DATE)
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SFDC_USER_EMAIL)
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST
+      ) = 1
     )
     SELECT
       target.email,
@@ -164,10 +192,10 @@ export async function resolveOnboardingUsers(emails, requestingEmail) {
       target.FULL_NAME,
       EXISTS (
         SELECT 1
-        FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY report
-        WHERE report.USER_ID = target.USER_ID
+        FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY report
+        WHERE report.SFDC_USER_ID = target.USER_ID
           AND report.MANAGER_EMPLOYEE_ID = (SELECT EMPLOYEE_ID FROM requester)
-          AND report.END_DATE >= CURRENT_DATE
+          AND (report.XC_ROLE_END_DATE IS NULL OR report.XC_ROLE_END_DATE >= CURRENT_DATE)
       ) AS IS_DIRECT_REPORT
     FROM target
     WHERE target.rn = 1
@@ -192,28 +220,32 @@ export async function resolveOnboardingUsers(emails, requestingEmail) {
 
 /**
  * Determine whether a user currently has direct reports (i.e. is a manager),
- * by checking the reporting line in USER_HISTORY. ROLE_TYPE (e.g. "SC" vs "SS")
+ * by checking the reporting line in role history. ROLE_TYPE (e.g. "SC" vs "SS")
  * is not a reliable manager signal — managers and ICs can share the same code —
  * so this checks whether anyone's current MANAGER_EMPLOYEE_ID points back to them.
  * @param {string} email
  * @returns {Promise<boolean | null>} true/false if resolved, or null if this
- *   email has no current USER_HISTORY record (e.g. not yet provisioned as an SC)
+ *   email has no current role-history record (e.g. not yet provisioned as an SC)
  */
 export async function checkHasDirectReports(email) {
   const sql = `
     SELECT
       (
-        SELECT COUNT(DISTINCT uh.USER_ID)
-        FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY uh
+        SELECT COUNT(DISTINCT uh.SFDC_USER_ID)
+        FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY uh
         WHERE uh.MANAGER_EMPLOYEE_ID = m.EMPLOYEE_ID
-          AND uh.END_DATE >= CURRENT_DATE
+          AND (uh.XC_ROLE_END_DATE IS NULL OR uh.XC_ROLE_END_DATE >= CURRENT_DATE)
       ) AS DIRECT_REPORTS
     FROM (
       SELECT EMPLOYEE_ID
-      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-      WHERE LOWER(EMAIL) = LOWER('${email.replace(/'/g, "''")}')
-        AND END_DATE >= CURRENT_DATE
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY EMAIL ORDER BY END_DATE DESC) = 1
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+      WHERE LOWER(SFDC_USER_EMAIL) = LOWER('${email.replace(/'/g, "''")}')
+        AND (XC_ROLE_END_DATE IS NULL OR XC_ROLE_END_DATE >= CURRENT_DATE)
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY LOWER(SFDC_USER_EMAIL)
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST
+      ) = 1
     ) m
   `;
 

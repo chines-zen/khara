@@ -63,7 +63,7 @@ There is no SSR server function layer — that was an earlier iteration of this 
 ## Data flow: fetching "my opportunities"
 
 1. **Auth** — `middleware/auth.js` resolves `req.user` from Pomerium headers (production) or a `DEV_MODE` bypass (local dev, `DEV_USER_EMAIL`/`devEmailOverride`), upserting into Postgres `users`.
-2. **SC identity** — `services/sc-lookup.js` resolves the effective Sales Engineer email (a saved `salesEngineerEmail` preference, else `req.user`'s email) to a Snowflake `USER_ID` via `USER_HISTORY`.
+2. **SC identity** — `services/sc-lookup.js` resolves the effective Sales Engineer email (a saved `salesEngineerEmail` preference, else `req.user`'s email) to a Salesforce `SFDC_USER_ID` via `SALES_EMPLOYEE_ROLE_HISTORY`.
 3. **Scope** — `services/opp-scope.js` resolves ARR threshold + close-date window from the saved `oppScopeSettings` preference, falling back to computed defaults (`fiscal-quarter.js`).
 4. **Cache check** — `services/sc-opportunities-cache.js` checks `sc_opportunities_cache` (Postgres) for a fresh (≤12hr) entry for this user; returns it if present.
 5. **Cache miss** — builds a scoped SQL query (`snowflake-queries.js`, `buildScOpportunitiesQuery`), runs it (`snowflake-connection.js`, `executeQuery`), transforms rows, and stores the result in Postgres before returning.

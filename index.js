@@ -53,6 +53,7 @@ import {
   invalidateGongCallsCache,
 } from "./services/gong-calls-cache.js";
 import { syncScopedSnowflakeData } from "./services/snowflake-data-sync.js";
+import { getRecentSyncRuns } from "./services/sync-runs.js";
 import {
   resolveScUserId,
   resolveOnboardingUsers,
@@ -88,22 +89,6 @@ const PORT = process.env.PORT || 8080;
 let databaseConnected = false;
 
 const SNOWFLAKE_RETRY_INTERVAL_MS = 30_000;
-
-// Initialize database on startup
-initializeDatabase()
-  .then(() => {
-    databaseConnected = true;
-    console.log("✅ Database initialized");
-
-    // Clean up expired summaries on startup
-    return cleanupExpiredSummaries()
-      .then(() => cleanupExpiredScCache())
-      .then(() => cleanupExpiredBlindSpotsCache());
-  })
-  .catch((err) => {
-    console.error("❌ Failed to initialize database:", err.message);
-    console.error("   The app will run but database features will fail.");
-  });
 
 // Connect to Snowflake on startup, retrying on failure so a missed SSO
 // prompt or transient error doesn't permanently disable it for the process lifetime.
@@ -209,8 +194,8 @@ function normalizeStage(stage) {
 
 function transformOpportunity(row) {
   return {
-    id: row.ID,
-    name: row.NAME,
+    id: row.ID || "",
+    name: row.NAME || "Unnamed Opportunity",
     account: row.ACCOUNT || "Unknown Account",
     stage: normalizeStage(row.STAGE) || "Unknown",
     type: row.TYPE,
@@ -218,7 +203,7 @@ function transformOpportunity(row) {
     amount: row.AMOUNT || 0,
     closeDate: row.CLOSE_DATE
       ? row.CLOSE_DATE.toISOString().split("T")[0]
-      : null,
+      : "",
     createdDate: row.CREATED_DATE
       ? row.CREATED_DATE.toISOString().split("T")[0]
       : null,
@@ -307,7 +292,18 @@ app.post("/api/auth/logout", (req, res) => {
 // bypass uses, so SC-scoped filtering can be exercised without real Pomerium headers.
 if (process.env.DEV_MODE === "true") {
   app.post("/api/dev/reset-session", async (req, res) => {
+    const userId = req.session?.userId;
+    const userEmail = req.session?.userEmail || process.env.DEV_USER_EMAIL;
     try {
+      if (userId || userEmail) {
+        await pool.query(
+          `UPDATE users
+           SET onboarding_complete = FALSE
+           WHERE ($1::INTEGER IS NOT NULL AND id = $1)
+              OR ($2::TEXT IS NOT NULL AND email = $2)`,
+          [userId ?? null, userEmail ?? null],
+        );
+      }
       await new Promise((resolve, reject) => {
         req.session.destroy((err) => (err ? reject(err) : resolve()));
       });
@@ -354,8 +350,6 @@ if (process.env.DEV_MODE === "true") {
     }
 
     req.session.devEmailOverride = email;
-    req.session.devOnboardingComplete = false;
-
     // Persist to .env so future dev sessions start with this email already set
     // (DEV_USER_EMAIL), skipping the capture dialog. Best-effort — a write
     // failure shouldn't fail the request, since the session override above
@@ -378,7 +372,7 @@ if (process.env.DEV_MODE === "true") {
   });
 }
 
-// First-login setup: validate a batch of emails in one USER_HISTORY query and
+// First-login setup: validate a batch of emails in one role-history query and
 // persist only the users that were found. The cache tables remain derived
 // snapshots; durable onboarding scope lives in user_preferences.
 app.post(
@@ -451,21 +445,29 @@ app.post(
   },
 );
 
-// Mark the DEV_MODE onboarding session complete only after the initial sync has
-// succeeded. This keeps a reload during setup recoverable without changing the
-// existing production authentication/session model.
+// Persist onboarding completion only after the initial sync has succeeded.
+// This keeps a reload during setup recoverable and makes completion durable per user.
 if (process.env.DEV_MODE === "true") {
   app.post("/api/onboarding/complete", authenticateWithPomerium, (req, res) => {
-    req.session.devOnboardingComplete = true;
-    req.session.save((err) => {
-      if (err) {
-        console.error("Failed to save onboarding completion:", err);
-        return res
-          .status(500)
-          .json({ error: "Failed to save onboarding state" });
-      }
-      res.json({ success: true });
-    });
+    pool
+      .query("UPDATE users SET onboarding_complete = TRUE WHERE id = $1", [
+        req.user.id,
+      ])
+      .then(() => {
+        req.session.save((err) => {
+          if (err) {
+            console.error("Failed to save onboarding completion:", err);
+            return res
+              .status(500)
+              .json({ error: "Failed to save onboarding state" });
+          }
+          res.json({ success: true });
+        });
+      })
+      .catch((error) => {
+        console.error("Failed to persist onboarding completion:", error);
+        res.status(500).json({ error: "Failed to save onboarding state" });
+      });
   });
 }
 
@@ -549,7 +551,7 @@ app.get(
       }
 
       // The user's own USER_ID, cached at login (see middleware/auth.js). Lets the
-      // sync below skip the USER_HISTORY identity lookup on a cache miss.
+      // sync below skip the role-history identity lookup on a cache miss.
       scope.sfdcUserId = req.user.sfdc_user_id ?? null;
 
       // Managers rarely own opportunities under their own name, so a sync scoped
@@ -779,6 +781,16 @@ app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
       error: "Failed to synchronize Snowflake data",
       details: error.message,
     });
+  }
+});
+
+app.get("/api/sync-runs", authenticateWithPomerium, async (req, res) => {
+  try {
+    const runs = await getRecentSyncRuns(req.user.id);
+    res.json({ runs });
+  } catch (error) {
+    console.error("Error fetching sync history:", error);
+    res.status(500).json({ error: "Failed to fetch sync history" });
   }
 });
 
@@ -1243,27 +1255,44 @@ app.get("*", (req, res) => {
 // START SERVER
 // ============================================================================
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 SE Opp Rigor server running on http://localhost:${PORT}`);
-  console.log(`📊 API endpoints:`);
-  console.log(`   GET  http://localhost:${PORT}/api/health (public)`);
-  console.log(`   GET  http://localhost:${PORT}/api/me (protected)`);
-  console.log(`   POST http://localhost:${PORT}/api/auth/logout (protected)`);
-  console.log(`   POST http://localhost:${PORT}/api/opportunities (protected)`);
-  console.log(
-    `   GET  http://localhost:${PORT}/api/opportunities/:id/summary (protected)`,
-  );
-  console.log(`   GET  http://localhost:${PORT}/api/owners (protected)`);
-  console.log(`   GET  http://localhost:${PORT}/api/close-months (protected)`);
-  console.log(`   GET  http://localhost:${PORT}/api/stats (protected)`);
-  console.log(
-    `   GET  http://localhost:${PORT}/api/user-preferences (protected)`,
-  );
-  console.log(
-    `   PUT  http://localhost:${PORT}/api/user-preferences/:key (protected)`,
-  );
-  console.log("");
-});
+async function startServer() {
+  try {
+    await initializeDatabase();
+    databaseConnected = true;
+    console.log("✅ Database initialized");
+
+    await cleanupExpiredSummaries();
+    await cleanupExpiredScCache();
+    await cleanupExpiredBlindSpotsCache();
+
+    app.listen(PORT, () => {
+      console.log(`\n🚀 SE Opp Rigor server running on http://localhost:${PORT}`);
+      console.log(`📊 API endpoints:`);
+      console.log(`   GET  http://localhost:${PORT}/api/health (public)`);
+      console.log(`   GET  http://localhost:${PORT}/api/me (protected)`);
+      console.log(`   POST http://localhost:${PORT}/api/auth/logout (protected)`);
+      console.log(`   POST http://localhost:${PORT}/api/opportunities (protected)`);
+      console.log(
+        `   GET  http://localhost:${PORT}/api/opportunities/:id/summary (protected)`,
+      );
+      console.log(`   GET  http://localhost:${PORT}/api/owners (protected)`);
+      console.log(`   GET  http://localhost:${PORT}/api/close-months (protected)`);
+      console.log(`   GET  http://localhost:${PORT}/api/stats (protected)`);
+      console.log(
+        `   GET  http://localhost:${PORT}/api/user-preferences (protected)`,
+      );
+      console.log(
+        `   PUT  http://localhost:${PORT}/api/user-preferences/:key (protected)`,
+      );
+      console.log("");
+    });
+  } catch (error) {
+    console.error("❌ Database migration failed; server will not start:", error);
+    process.exitCode = 1;
+  }
+}
+
+startServer();
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {

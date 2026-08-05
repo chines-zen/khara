@@ -89,10 +89,16 @@ export function OnboardingFlow({
 
   const handleEmailSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^@\s]+@zendesk\.com$/.test(normalizedEmail)) {
+      setError("Please enter your Zendesk email to continue");
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      await onEmailSave(email.trim());
+      await onEmailSave(normalizedEmail);
       setPhase("scope");
     } catch (saveError) {
       setError(
@@ -157,10 +163,12 @@ export function OnboardingFlow({
         {phase === "email" && (
           <>
             <h1 className="text-xl font-semibold text-zd-dark">
-              Welcome to Khara!
+              Welcome to KHARA
             </h1>
             <p className="mt-2 text-sm text-zd-teal/70">
               Enter your email below to get started.
+              <br />
+              You will need to be on the VPN to continue.
             </p>
             <form onSubmit={handleEmailSubmit} className="mt-6 space-y-4">
               <label className="block text-[10px] font-bold uppercase tracking-wider text-zd-teal/60">
@@ -170,7 +178,10 @@ export function OnboardingFlow({
                   required
                   type="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setError(null);
+                  }}
                   placeholder="you@zendesk.com"
                   className="mt-1 w-full rounded border border-zd-border px-3 py-2 text-sm text-zd-dark outline-none focus:border-zd-green focus:ring-1 focus:ring-zd-green"
                 />

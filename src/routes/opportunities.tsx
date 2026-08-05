@@ -49,7 +49,6 @@ function readDisclaimerVisible() {
   }
 }
 
-
 type OpportunitiesSearch = {
   oppId?: string;
 };
@@ -79,12 +78,12 @@ export const Route = createFileRoute("/opportunities")({
 
 // Fetch hidden opportunity IDs
 async function fetchHiddenOpportunities() {
-  const response = await fetch('/api/hidden-opportunities', {
-    credentials: 'include',
+  const response = await fetch("/api/hidden-opportunities", {
+    credentials: "include",
   });
 
   if (!response.ok) {
-    throw new Error('Failed to fetch hidden opportunities');
+    throw new Error("Failed to fetch hidden opportunities");
   }
 
   const data = await response.json();
@@ -115,12 +114,16 @@ function applyFilters(opportunities: Opportunity[], filters: Filters) {
     }
 
     // SE filter (manager-only)
-    if (filters.ses.length > 0 && (!opp.nameOfSc || !filters.ses.includes(opp.nameOfSc))) {
+    if (
+      filters.ses.length > 0 &&
+      (!opp.nameOfSc || !filters.ses.includes(opp.nameOfSc))
+    ) {
       return false;
     }
 
     // Close month filter
     if (filters.closeMonths.length > 0) {
+      if (!opp.closeDate) return false;
       const oppMonth = opp.closeDate.slice(0, 7);
       if (!filters.closeMonths.includes(oppMonth)) return false;
     }
@@ -156,17 +159,22 @@ function OpportunitiesPage() {
     queryFn: fetchOpportunities,
     retry: false,
   });
-  const allOpportunities = loaderOpportunities?.opportunities ?? [];
+  const allOpportunities = useMemo(
+    () => loaderOpportunities?.opportunities ?? [],
+    [loaderOpportunities?.opportunities],
+  );
   const isManager = useIsManager();
   const scNotFoundError =
-    isError && opportunitiesError instanceof ScUserNotFoundError ? opportunitiesError : null;
+    isError && opportunitiesError instanceof ScUserNotFoundError
+      ? opportunitiesError
+      : null;
   const fetchError =
-    isError && !(opportunitiesError instanceof ScUserNotFoundError) ? opportunitiesError : null;
+    isError && !(opportunitiesError instanceof ScUserNotFoundError)
+      ? opportunitiesError
+      : null;
 
   // Fetch hidden opportunity IDs
-  const {
-    data: hiddenIds = [],
-  } = useQuery({
+  const { data: hiddenIds = [] } = useQuery({
     queryKey: ["hiddenOpportunities"],
     queryFn: fetchHiddenOpportunities,
     staleTime: 5 * 60 * 1000,
@@ -177,10 +185,17 @@ function OpportunitiesPage() {
   useEffect(() => {
     async function loadSavedFilters() {
       try {
-        const savedFilters = await fetchUserPreference<Record<string, unknown>>('opportunityFilters');
-        const savedSort = await fetchUserPreference<SortOption>('opportunitySort');
-        const savedShowHidden = await fetchUserPreference<boolean>('showHiddenOpportunities');
-        const savedScopeSettings = await fetchUserPreference('oppScopeSettings');
+        const savedFilters =
+          await fetchUserPreference<Record<string, unknown>>(
+            "opportunityFilters",
+          );
+        const savedSort =
+          await fetchUserPreference<SortOption>("opportunitySort");
+        const savedShowHidden = await fetchUserPreference<boolean>(
+          "showHiddenOpportunities",
+        );
+        const savedScopeSettings =
+          await fetchUserPreference("oppScopeSettings");
 
         if (savedFilters) {
           // Migrate legacy single-value owner/se filters (pre multi-select) to arrays
@@ -212,14 +227,14 @@ function OpportunitiesPage() {
           return; // scope settings missing — bail out, we're leaving this page
         }
       } catch (error) {
-        console.error('Failed to load saved filters:', error);
+        console.error("Failed to load saved filters:", error);
       } finally {
         setFiltersLoaded(true);
       }
     }
 
     loadSavedFilters();
-  }, []);
+  }, [navigate]);
 
   function dismissDisclaimer() {
     setShowDisclaimer(false);
@@ -235,7 +250,7 @@ function OpportunitiesPage() {
     if (!filtersLoaded) return; // Don't save until initial load is complete
 
     const timeoutId = setTimeout(() => {
-      saveUserPreference('opportunityFilters', filters).catch(console.error);
+      saveUserPreference("opportunityFilters", filters).catch(console.error);
     }, 1000); // Debounce by 1 second
 
     return () => clearTimeout(timeoutId);
@@ -245,26 +260,28 @@ function OpportunitiesPage() {
   useEffect(() => {
     if (!filtersLoaded) return;
 
-    saveUserPreference('opportunitySort', sortBy).catch(console.error);
+    saveUserPreference("opportunitySort", sortBy).catch(console.error);
   }, [sortBy, filtersLoaded]);
 
   // Save showHidden preference whenever it changes
   useEffect(() => {
     if (!filtersLoaded) return;
 
-    saveUserPreference('showHiddenOpportunities', showHidden).catch(console.error);
+    saveUserPreference("showHiddenOpportunities", showHidden).catch(
+      console.error,
+    );
   }, [showHidden, filtersLoaded]);
 
   // Apply filters client-side (independent of showHidden, so we can count
   // hidden opps that would otherwise be visible)
   const withFilters = useMemo(
     () => applyFilters(allOpportunities, filters),
-    [allOpportunities, filters]
+    [allOpportunities, filters],
   );
 
   const visibleHiddenCount = useMemo(
     () => withFilters.filter((opp) => hiddenIds.includes(opp.id)).length,
-    [withFilters, hiddenIds]
+    [withFilters, hiddenIds],
   );
 
   // Hide/show hidden opps on top of the filtered set
@@ -284,14 +301,15 @@ function OpportunitiesPage() {
       list.sort((a, b) => a.closeDate.localeCompare(b.closeDate));
     } else {
       // daysSince: nulls first (no sc notes / parsing errors), then oldest update date
-      list.sort(
-        (a, b) => {
-          if (!a.lastUpdateDate && !b.lastUpdateDate) return 0;
-          if (!a.lastUpdateDate) return -1; // nulls go to top
-          if (!b.lastUpdateDate) return 1;
-          return new Date(a.lastUpdateDate).getTime() - new Date(b.lastUpdateDate).getTime();
-        }
-      );
+      list.sort((a, b) => {
+        if (!a.lastUpdateDate && !b.lastUpdateDate) return 0;
+        if (!a.lastUpdateDate) return -1; // nulls go to top
+        if (!b.lastUpdateDate) return 1;
+        return (
+          new Date(a.lastUpdateDate).getTime() -
+          new Date(b.lastUpdateDate).getTime()
+        );
+      });
     }
     return list;
   }, [filtered, sortBy]);
@@ -302,7 +320,6 @@ function OpportunitiesPage() {
     allOpportunities.find((o) => o.id === selectedId) ??
     sorted[0] ??
     null;
-
 
   if (scNotFoundError) {
     return (
@@ -340,9 +357,9 @@ function OpportunitiesPage() {
         {showDisclaimer && (
           <div className="flex items-start justify-between gap-3 bg-zd-green/10 border border-zd-green/30 text-zd-dark rounded px-4 py-2.5 text-sm">
             <p>
-              <span className="font-semibold">Salesforce Data</span> refreshed every
-              24-36 hours. Changes made since then will not be reflected in the
-              data set below.
+              <span className="font-semibold">Salesforce Data</span> refreshed
+              every 24-36 hours. Changes made since then will not be reflected
+              in the data set below.
             </p>
             <button
               type="button"
@@ -355,8 +372,12 @@ function OpportunitiesPage() {
           </div>
         )}
 
-        <FilterBar filters={filters} onChange={setFilters} opportunities={allOpportunities} isManager={isManager} />
-
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          opportunities={allOpportunities}
+          isManager={isManager}
+        />
 
         <div className="flex gap-0 bg-white border border-zd-border rounded overflow-hidden flex-1 min-h-[520px] shadow-sm">
           <div className="w-[380px] shrink-0 border-r border-zd-border flex flex-col min-h-0">
@@ -367,7 +388,8 @@ function OpportunitiesPage() {
                     "Loading..."
                   ) : (
                     <>
-                      {sorted.length} {sorted.length === 1 ? "result" : "results"}
+                      {sorted.length}{" "}
+                      {sorted.length === 1 ? "result" : "results"}
                     </>
                   )}
                 </span>
@@ -399,11 +421,15 @@ function OpportunitiesPage() {
                               setSortOpen(false);
                             }}
                             className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 text-sm rounded hover:bg-zd-bg ${
-                              active ? "text-zd-dark font-semibold" : "text-zd-teal/80"
+                              active
+                                ? "text-zd-dark font-semibold"
+                                : "text-zd-teal/80"
                             }`}
                           >
                             <span>{SORT_LABELS[opt]}</span>
-                            {active && <Check className="size-3.5 text-zd-green" />}
+                            {active && (
+                              <Check className="size-3.5 text-zd-green" />
+                            )}
                           </button>
                         );
                       })}
@@ -448,7 +474,11 @@ function OpportunitiesPage() {
           </div>
 
           {selected ? (
-            <OpportunityDetail opp={selected} isHidden={hiddenIds.includes(selected.id)} isManager={isManager} />
+            <OpportunityDetail
+              opp={selected}
+              isHidden={hiddenIds.includes(selected.id)}
+              isManager={isManager}
+            />
           ) : (
             <div className="flex-1 min-w-0 flex items-center justify-center text-sm text-zd-teal/50">
               Select an opportunity to view details.

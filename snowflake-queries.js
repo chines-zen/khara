@@ -82,14 +82,18 @@ LEFT JOIN FOUNDATIONAL.CUSTOMER_STAGING.STG_SALESFORCE_ACCOUNT_SCD2 acc
     ON stg.ACCOUNT_ID = acc.ID
     AND acc.VALID_TO_TIMESTAMP = '9999-12-31 00:00:00.000'
 
--- Join for SC name (deduplicate USER_HISTORY)
+-- Join for SC name (deduplicate current sales employee role history)
 LEFT JOIN (
     SELECT
-        USER_ID,
+        SFDC_USER_ID AS USER_ID,
         FULL_NAME,
-        EMAIL
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY USER_ID ORDER BY USER_ID) = 1
+        SFDC_USER_EMAIL AS EMAIL
+    FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY SFDC_USER_ID
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST
+    ) = 1
 ) sc_user
     ON stg.NAME_OF_SC_C = sc_user.USER_ID
 
@@ -160,7 +164,7 @@ WHERE dim.RUN_DATE = (
 
   // Specific opportunity IDs filter (for testing)
   if (opportunityIds && opportunityIds.length > 0) {
-    const idList = opportunityIds.map((id) => `'${id}'`).join(", ");
+    const idList = toSqlStringList(opportunityIds);
     conditions.push(`dim.CRM_OPPORTUNITY_ID IN (${idList})`);
   }
 
@@ -197,7 +201,7 @@ WHERE dim.RUN_DATE = (
   }
 
   // Owner sources expose names, while the settings UI stores stable Zendesk
-  // email addresses. Match the current USER_HISTORY name for each configured
+  // email addresses. Match the current role-history name for each configured
   // email before applying the Blind Spots scope.
   if (ownerEmails && ownerEmails.length > 0) {
     const emailList = ownerEmails
@@ -205,8 +209,9 @@ WHERE dim.RUN_DATE = (
       .join(", ");
     conditions.push(`EXISTS (
       SELECT 1
-      FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY owner_user
-      WHERE LOWER(owner_user.EMAIL) IN (${emailList})
+      FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY owner_user
+      WHERE LOWER(owner_user.SFDC_USER_EMAIL) IN (${emailList})
+        AND (owner_user.XC_ROLE_END_DATE IS NULL OR owner_user.XC_ROLE_END_DATE >= CURRENT_DATE)
         AND LOWER(owner_user.FULL_NAME) = LOWER(COALESCE(curated.OWNER_ACTUAL_NAME__C_OPPT, funnel.OPP_OWNER_NAME))
     )`);
   }
@@ -223,7 +228,17 @@ WHERE dim.RUN_DATE = (
 
   // Close month filter
   if (closeMonths && closeMonths.length > 0) {
-    const monthList = closeMonths.map((m) => `'${m}'`).join(", ");
+    const monthList = closeMonths
+      .map((month) => {
+        if (
+          typeof month !== "string" ||
+          !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)
+        ) {
+          throw new Error(`Invalid close month: ${month}`);
+        }
+        return `'${month}'`;
+      })
+      .join(", ");
     conditions.push(
       `TO_CHAR(dim.CALENDAR_CLOSEDATE, 'YYYY-MM') IN (${monthList})`,
     );
@@ -368,9 +383,13 @@ LEFT JOIN FOUNDATIONAL.CUSTOMER_STAGING.STG_SALESFORCE_ACCOUNT_SCD2 acc
 
 -- Join for SC name
 LEFT JOIN (
-    SELECT USER_ID, FULL_NAME, EMAIL
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY USER_ID ORDER BY USER_ID) = 1
+    SELECT SFDC_USER_ID AS USER_ID, FULL_NAME, SFDC_USER_EMAIL AS EMAIL
+    FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY SFDC_USER_ID
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST
+    ) = 1
 ) sc_user
     ON stg.NAME_OF_SC_C = sc_user.USER_ID
 
@@ -444,7 +463,7 @@ LEFT JOIN (
 
 /**
  * Build SQL query for SC-specific opportunities (active pipeline stages 00-08 plus Lost)
- * @param {string | string[]} snowflakeUserIds - USER_ID(s) from USER_HISTORY table. A manager
+ * @param {string | string[]} snowflakeUserIds - Salesforce user ID(s) from sales employee role history. A manager
  *   scoping to their team's SCs (see Sales Engineers setting) passes multiple IDs here.
  * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
  */
@@ -452,9 +471,7 @@ export function buildScOpportunitiesQuery(snowflakeUserIds, scope = {}) {
   const userIds = Array.isArray(snowflakeUserIds)
     ? snowflakeUserIds
     : [snowflakeUserIds];
-  const userIdList = userIds
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(", ");
+  const userIdList = toSqlStringList(userIds);
   const { arrThreshold, closeDateFrom, closeDateTo } = scope;
 
   const scopeConditions = [];
@@ -509,7 +526,7 @@ ORDER BY stg.NAME
  * input for the window functions and aggregation while preserving the returned
  * columns and filtering semantics.
  *
- * @param {string | string[]} snowflakeUserIds - USER_ID(s) from USER_HISTORY.
+ * @param {string | string[]} snowflakeUserIds - Salesforce user ID(s) from sales employee role history.
  * @param {{ arrThreshold?: number, closeDateFrom?: string, closeDateTo?: string }} [scope]
  */
 // Retained only as a query-plan comparison point. Its repeated CTE references
@@ -522,9 +539,7 @@ export function buildScOpportunitiesCtePrototypeQuery(
   const userIds = Array.isArray(snowflakeUserIds)
     ? snowflakeUserIds
     : [snowflakeUserIds];
-  const userIdList = userIds
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(", ");
+  const userIdList = toSqlStringList(userIds);
   const { arrThreshold, closeDateFrom, closeDateTo } = scope;
 
   const baseScopeConditions = [
@@ -629,14 +644,18 @@ target_accounts AS (
 ),
 
 target_sc_users AS (
-    SELECT USER_ID, FULL_NAME
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY
-    WHERE USER_ID IN (
+    SELECT SFDC_USER_ID AS USER_ID, FULL_NAME
+    FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY
+    WHERE SFDC_USER_ID IN (
         SELECT DISTINCT sc_user_id
         FROM target_opportunities
         WHERE sc_user_id IS NOT NULL
     )
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY USER_ID ORDER BY USER_ID) = 1
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY SFDC_USER_ID
+        ORDER BY XC_ROLE_END_DATE DESC NULLS LAST,
+                 XC_ROLE_START_DATE DESC NULLS LAST
+    ) = 1
 ),
 
 current_curated_snapshot AS (
@@ -761,7 +780,21 @@ ORDER BY target.name
 }
 
 function toSqlStringList(values) {
-  return values.map((value) => `'${value.replace(/'/g, "''")}'`).join(", ");
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error("Expected a non-empty list of Snowflake identifiers");
+  }
+  return values
+    .map((value) => {
+      return `'${validateSnowflakeIdentifier(value)}'`;
+    })
+    .join(", ");
+}
+
+function validateSnowflakeIdentifier(value, label = "Snowflake identifier") {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,255}$/.test(value)) {
+    throw new Error(`Invalid ${label}: ${value}`);
+  }
+  return value;
 }
 
 /**
@@ -850,8 +883,10 @@ export function buildScOpportunitiesTargetedQuery(targets) {
 
   const targetValues = targets
     .map((target) => {
-      const id = target.id.replace(/'/g, "''");
-      const scUserId = target.scUserId?.replace(/'/g, "''") ?? null;
+      const id = validateSnowflakeIdentifier(target.id, "opportunity ID");
+      const scUserId = target.scUserId
+        ? validateSnowflakeIdentifier(target.scUserId, "SC user ID")
+        : null;
       const amount = Number(target.amount);
       return `('${id}', ${Number.isFinite(amount) ? amount : "NULL"}, ${scUserId ? `'${scUserId}'` : "NULL"})`;
     })
@@ -869,15 +904,19 @@ WITH target_opportunities AS (
         ${targetValues}
 ),
 target_sc_users AS (
-    SELECT user_history.USER_ID, user_history.FULL_NAME
-    FROM FUNCTIONAL.MARKETING_ANALYTICS.USER_HISTORY user_history
+    SELECT role_history.SFDC_USER_ID AS USER_ID, role_history.FULL_NAME
+    FROM FUNCTIONAL.MARKETING_ANALYTICS.SALES_EMPLOYEE_ROLE_HISTORY role_history
     JOIN (
         SELECT DISTINCT sc_user_id
         FROM target_opportunities
         WHERE sc_user_id IS NOT NULL
     ) target
-      ON target.sc_user_id = user_history.USER_ID
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY user_history.USER_ID ORDER BY user_history.USER_ID) = 1
+      ON target.sc_user_id = role_history.SFDC_USER_ID
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY role_history.SFDC_USER_ID
+        ORDER BY role_history.XC_ROLE_END_DATE DESC NULLS LAST,
+                 role_history.XC_ROLE_START_DATE DESC NULLS LAST
+    ) = 1
 ),
 current_curated_snapshot AS (
     SELECT MAX(SOURCE_SNAPSHOT_DATE) AS source_snapshot_date
@@ -1016,9 +1055,7 @@ ORDER BY stg.NAME
  */
 export function buildActivitiesQuery(createdByIds, range = {}) {
   const ids = Array.isArray(createdByIds) ? createdByIds : [createdByIds];
-  const createdByIdList = ids
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(", ");
+  const createdByIdList = toSqlStringList(ids);
   const { fromDate, toDate, since } = range;
   const fromEscaped = fromDate.replace(/'/g, "''");
   const toEscaped = toDate.replace(/'/g, "''");
@@ -1089,9 +1126,7 @@ export function buildActivitiesSnapshotDateTargetQuery(
   range = {},
 ) {
   const ids = Array.isArray(createdByIds) ? createdByIds : [createdByIds];
-  const createdByIdList = ids
-    .map((id) => `'${id.replace(/'/g, "''")}'`)
-    .join(", ");
+  const createdByIdList = toSqlStringList(ids);
   const { fromDate, toDate, sourceSnapshotDate } = range;
   if (!sourceSnapshotDate) {
     throw new Error(
@@ -1200,7 +1235,7 @@ FROM current_snapshot
  */
 export function buildDispassionateReviewsQuery(opportunityIds, opts = {}) {
   const ids = Array.isArray(opportunityIds) ? opportunityIds : [opportunityIds];
-  const idList = ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(", ");
+  const idList = toSqlStringList(ids);
   const { since } = opts;
   const sinceClause = since
     ? `\n  AND VALID_FROM_TIMESTAMP >= '${since.replace(/'/g, "''")}'`
@@ -1265,7 +1300,7 @@ ORDER BY OPPORTUNITY_C, VALID_FROM_TIMESTAMP
  */
 export function buildGongCallsQuery(opportunityIds) {
   const ids = Array.isArray(opportunityIds) ? opportunityIds : [opportunityIds];
-  const idList = ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(", ");
+  const idList = toSqlStringList(ids);
 
   return `
 SELECT

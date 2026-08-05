@@ -142,6 +142,11 @@ function RootComponent() {
     if (preferredName) {
       await saveUserPreference("preferredName", preferredName);
     }
+
+    if (!updatedMe?.needsOnboarding) {
+      setOnboardingStarted(false);
+      await router.navigate({ to: "/help" });
+    }
   };
 
   const handleOnboardingFinished = async () => {

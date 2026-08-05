@@ -1,9 +1,14 @@
-import { randomUUID } from "node:crypto";
 import { getActivities } from "./activities-cache.js";
 import { syncDispassionateReviewsForOpportunities } from "./dispassionate-reviews-cache.js";
 import { syncGongCallsForOpportunities } from "./gong-calls-cache.js";
 import { getScOpportunities } from "./sc-opportunities-cache.js";
 import { getBlindSpots } from "./blind-spots-cache.js";
+import {
+  finishSyncDomain,
+  finishSyncRun,
+  startSyncDomain,
+  startSyncRun,
+} from "./sync-runs.js";
 
 // A second click (or another open tab) for the same app user should join the
 // current run, never interleave a second set of cache writes with it. The entry
@@ -42,7 +47,36 @@ async function performSync({
   activityScope,
   blindSpotsScope,
 }) {
-  const runId = randomUUID();
+  const runId = await startSyncRun(userId, {
+    arrThreshold: scope.arrThreshold ?? null,
+    closeDatePreset: scope.closeDatePreset ?? null,
+    closeDateFrom: scope.closeDateFrom ?? null,
+    closeDateTo: scope.closeDateTo ?? null,
+    scEmails: Array.isArray(scope.scEmails) ? scope.scEmails : [],
+  });
+  try {
+    return await performSyncRun({
+      userId,
+      userEmail,
+      scope,
+      activityScope,
+      blindSpotsScope,
+      runId,
+    });
+  } catch (error) {
+    await finishSyncRun(runId, error.message);
+    throw error;
+  }
+}
+
+async function performSyncRun({
+  userId,
+  userEmail,
+  scope,
+  activityScope,
+  blindSpotsScope,
+  runId,
+}) {
   const startedAt = new Date();
   const totalStarted = performance.now();
 
@@ -52,8 +86,8 @@ async function performSync({
   // - Opportunities resolves its small SC target ID set before enrichment.
   // - Activities reads only the latest activity snapshot, not every history row.
   // - Blind Spots applies the separate AE/no-SC scope and writes its own cache.
-  const [opportunityDomain, activityDomain, blindSpotsDomain] = await Promise.all([
-    measureDomain("opportunities", async () => {
+  const [opportunityDomain, activityDomain, blindSpotsDomain] = await runDomains([
+    measureDomain("opportunities", runId, async () => {
       const result = await getScOpportunities(userId, userEmail, {
         ...scope,
         force: true,
@@ -64,7 +98,7 @@ async function performSync({
         syncedTargets: result.opportunities.length,
       };
     }),
-    measureDomain("activities", async () => {
+    measureDomain("activities", runId, async () => {
       const result = await getActivities(userEmail, {
         ...activityScope,
         force: true,
@@ -75,7 +109,7 @@ async function performSync({
         syncedTargets: result.activities.length,
       };
     }),
-    measureDomain("blindSpots", async () => {
+    measureDomain("blindSpots", runId, async () => {
       const result = await getBlindSpots(userId, userEmail, {
         ...blindSpotsScope,
         force: true,
@@ -93,8 +127,8 @@ async function performSync({
 
   // Reviews and calls are intentionally not lazy detail-page side effects in
   // this flow. Both consume the same freshly-materialized opportunity set.
-  const [reviewDomain, gongDomain] = await Promise.all([
-    measureDomain("dispassionateReviews", async () => {
+  const [reviewDomain, gongDomain] = await runDomains([
+    measureDomain("dispassionateReviews", runId, async () => {
       const result = await syncDispassionateReviewsForOpportunities(
         opportunityIds,
         userEmail,
@@ -106,7 +140,7 @@ async function performSync({
         syncedTargets: result.syncedOpportunityCount,
       };
     }),
-    measureDomain("gongCalls", async () => {
+    measureDomain("gongCalls", runId, async () => {
       const result = await syncGongCallsForOpportunities(
         opportunityIds,
         userEmail,
@@ -143,6 +177,8 @@ async function performSync({
     },
   };
 
+  await finishSyncRun(runId);
+
   console.log(
     `[Snowflake Sync] ${runId} completed in ${durationMs}ms ` +
       `(opps ${result.domains.opportunities.durationMs}ms, ` +
@@ -154,16 +190,35 @@ async function performSync({
   return result;
 }
 
-async function measureDomain(name, work) {
+async function measureDomain(name, syncRunId, work) {
   const started = performance.now();
-  const { result, records, syncedTargets } = await work();
-  return {
-    name,
-    result,
-    records,
-    syncedTargets,
-    durationMs: Math.round(performance.now() - started),
-  };
+  await startSyncDomain(syncRunId, name);
+  try {
+    const { result, records, syncedTargets } = await work();
+    const durationMs = Math.round(performance.now() - started);
+    await finishSyncDomain(syncRunId, name, {
+      status: "succeeded",
+      durationMs,
+      records,
+      syncedTargets,
+    });
+    return { name, result, records, syncedTargets, durationMs };
+  } catch (error) {
+    const durationMs = Math.round(performance.now() - started);
+    await finishSyncDomain(syncRunId, name, {
+      status: "failed",
+      durationMs,
+      error: error.message,
+    });
+    throw error;
+  }
+}
+
+async function runDomains(promises) {
+  const settled = await Promise.allSettled(promises);
+  const failed = settled.find((result) => result.status === "rejected");
+  if (failed) throw failed.reason;
+  return settled.map((result) => result.value);
 }
 
 function summarizeDomain(domain) {

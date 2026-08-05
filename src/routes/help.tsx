@@ -47,8 +47,19 @@ function HelpPage() {
       <div className="rounded border border-zd-border bg-white p-6">
         <h2 className="text-lg font-semibold text-zd-dark">Help</h2>
         <p className="mt-1 text-sm text-zd-teal/70">
-          A quick guide to each section. Contact @chines on Slack with
-          questions.
+          See{" "}
+          <a
+            href="https://docs.google.com/presentation/d/1-1Ej7rSpKAWKSRiDK7ZVASCoe2CNPYdURBs0aGhOB2I/edit?usp=sharing"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-zd-teal"
+          >
+            this deck
+          </a>{" "}
+          for more info.
+        </p>
+        <p className="mt-1 text-sm text-zd-teal/70">
+          Contact @chines on Slack with questions / bugs.
         </p>
       </div>
 

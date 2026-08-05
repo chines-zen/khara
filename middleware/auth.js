@@ -3,7 +3,7 @@ import { resolveUserIdentity } from "../services/sc-lookup.js";
 import { ensureDefaultOppScope } from "../services/opp-scope.js";
 
 // How long a cached identity (sfdc_user_id + is_manager) is trusted before it's
-// re-resolved from USER_HISTORY. Long, because these change rarely — but not
+// re-resolved from sales employee role history. Long, because these change rarely — but not
 // never, so a re-provisioned USER_ID or a promotion isn't cached permanently.
 const IDENTITY_TTL_DAYS = 7;
 
@@ -11,7 +11,7 @@ const IDENTITY_TTL_DAYS = 7;
 // requests on a cold load (three /api/me plus opportunities/preferences/hidden),
 // and every one of them hits this middleware before any of them has written a
 // session or a users row — so the "already resolved?" checks below all miss and
-// each request would run its own USER_HISTORY query. Sharing the promise means
+// each request would run its own identity query. Sharing the promise means
 // the first request does the lookup and the rest await its result.
 //
 // Same pattern as `connecting` in snowflake-connection.js. Note that dedupes the
@@ -52,7 +52,7 @@ async function upsertUser(userInfo) {
       last_login = NOW(),
       name = COALESCE(EXCLUDED.name, users.name)
     RETURNING id, email, sub, name, created_at, last_login, is_manager,
-              sfdc_user_id, identity_resolved_at
+              sfdc_user_id, identity_resolved_at, onboarding_complete
   `;
 
   const result = await pool.query(query, [email, sub, name]);
@@ -76,7 +76,7 @@ async function upsertUser(userInfo) {
 async function getUserById(id) {
   const result = await pool.query(
     `SELECT id, email, sub, name, created_at, last_login, is_manager,
-            sfdc_user_id, identity_resolved_at
+            sfdc_user_id, identity_resolved_at, onboarding_complete
      FROM users WHERE id = $1`,
     [id],
   );
@@ -124,7 +124,7 @@ function resolveIdentityOnce(email) {
 
 /**
  * Populate and cache the user's Snowflake identity: their SC USER_ID and
- * whether they manage anyone. One USER_HISTORY query covers both, and the
+ * whether they manage anyone. One role-history query covers both, and the
  * result is persisted so subsequent logins — and, more importantly, cache
  * refreshes — read it from Postgres instead of re-querying Snowflake.
  *
@@ -160,7 +160,7 @@ async function ensureUserIdentity(user, email, fallbackName) {
          identity_resolved_at = NOW()
      WHERE id = $4
      RETURNING id, email, sub, name, created_at, last_login, is_manager,
-               sfdc_user_id, identity_resolved_at`,
+               sfdc_user_id, identity_resolved_at, onboarding_complete`,
     [identity.userId, isManager, name, user.id],
   );
 
@@ -218,11 +218,10 @@ export async function authenticateWithPomerium(req, res, next) {
       // frontend uses this to show a first-use email capture dialog instead of
       // silently querying Snowflake/Salesforce data as the 'dev@localhost' placeholder.
       req.user.needsEmailSetup = !capturedEmail;
-      // DEV_MODE onboarding is intentionally session-scoped: a developer who
-      // starts with no DEV_USER_EMAIL must complete setup before data queries
-      // mount, while existing seeded dev sessions keep their current behavior.
+      // DEV_MODE onboarding is durable per user. Clear DEV Mode explicitly resets
+      // the stored flag when a developer wants to replay setup.
       req.user.needsOnboarding = Boolean(
-        capturedEmail && !req.session?.devOnboardingComplete,
+        capturedEmail && !req.user.onboarding_complete,
       );
 
       if (capturedEmail) {
@@ -254,7 +253,7 @@ export async function authenticateWithPomerium(req, res, next) {
     if (!user) {
       // New session (or changed identity) — upsert refreshes last_login. The
       // Pomerium header name seeds the row; ensureUserIdentity below replaces it
-      // with the real USER_HISTORY full name when it can resolve one.
+      // with the real role-history full name when it can resolve one.
       user = await upsertUser(pomeriumUser);
       req.session.userId = user.id;
       req.session.userEmail = user.email;
@@ -291,7 +290,7 @@ export async function restoreUserFromSession(req, res, next) {
   if (req.session && req.session.userId) {
     try {
       const result = await pool.query(
-        "SELECT id, email, sub, name, created_at, last_login FROM users WHERE id = $1",
+        "SELECT id, email, sub, name, created_at, last_login, onboarding_complete FROM users WHERE id = $1",
         [req.session.userId],
       );
 

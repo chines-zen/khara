@@ -1,6 +1,10 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CLOSED_STAGES, type Opportunity } from "@/lib/opportunities";
 
@@ -35,7 +39,12 @@ const MONTH_LABEL = (key: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "numeric" });
 };
 
-export function FilterBar({ filters, onChange, opportunities, isManager }: Props) {
+export function FilterBar({
+  filters,
+  onChange,
+  opportunities,
+  isManager,
+}: Props) {
   const update = <K extends keyof Filters>(key: K, value: Filters[K]) =>
     onChange({ ...filters, [key]: value });
 
@@ -68,7 +77,8 @@ export function FilterBar({ filters, onChange, opportunities, isManager }: Props
 
   // "Open" = any stage present in the data that isn't Won/Lost
   const openStages = useMemo(
-    () => availableStages.filter((s) => !(CLOSED_STAGES as string[]).includes(s)),
+    () =>
+      availableStages.filter((s) => !(CLOSED_STAGES as string[]).includes(s)),
     [availableStages],
   );
 
@@ -103,7 +113,9 @@ export function FilterBar({ filters, onChange, opportunities, isManager }: Props
 
   const monthOptions = useMemo(() => {
     const set = new Set<string>();
-    opportunities.forEach((o) => set.add(o.closeDate.slice(0, 7)));
+    opportunities.forEach((o) => {
+      if (o.closeDate) set.add(o.closeDate.slice(0, 7));
+    });
     return Array.from(set).sort();
   }, [opportunities]);
 
@@ -155,7 +167,7 @@ export function FilterBar({ filters, onChange, opportunities, isManager }: Props
     ...filters.ses,
     ...filters.stages,
     ...filters.closeMonths,
-    filters.arrMin
+    filters.arrMin,
   ].filter(Boolean).length;
 
   return (
@@ -168,267 +180,321 @@ export function FilterBar({ filters, onChange, opportunities, isManager }: Props
         <span className="text-xs font-bold text-zd-teal/70 uppercase tracking-wider">
           Filters ({activeFiltersCount} active)
         </span>
-        {collapsed ? <ChevronDown className="size-4 text-zd-teal/60" /> : <ChevronUp className="size-4 text-zd-teal/60" />}
+        {collapsed ? (
+          <ChevronDown className="size-4 text-zd-teal/60" />
+        ) : (
+          <ChevronUp className="size-4 text-zd-teal/60" />
+        )}
       </button>
       {!collapsed && (
         <div className="p-4 space-y-3">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[220px]">
-          <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            Search
-          </label>
-          <input
-            type="text"
-            value={filters.search}
-            onChange={(e) => update("search", e.target.value)}
-            placeholder="Opportunity, account or AE…"
-            className="w-full bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
-          />
-        </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[220px]">
+              <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+                Search
+              </label>
+              <input
+                type="text"
+                value={filters.search}
+                onChange={(e) => update("search", e.target.value)}
+                placeholder="Opportunity, account or AE…"
+                className="w-full bg-white border border-zd-border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green placeholder:text-zd-teal/40"
+              />
+            </div>
 
-        <div>
-          <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            AE
-          </label>
-          <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              >
-                <span className={filters.owners.length ? "text-zd-dark" : "text-zd-teal/60"}>
-                  {ownerLabel}
-                </span>
-                <span className="text-zd-teal/40 text-xs">▾</span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
-              <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
-                <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-                  AEs
-                </span>
-                {filters.owners.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+                AE
+              </label>
+              <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
+                <PopoverTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => update("owners", [])}
-                    className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                    className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
                   >
-                    CLEAR
-                  </button>
-                )}
-              </div>
-              <div className="space-y-1">
-                {availableOwners.map((o) => {
-                  const checked = filters.owners.includes(o);
-                  return (
-                    <label
-                      key={o}
-                      className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                    <span
+                      className={
+                        filters.owners.length
+                          ? "text-zd-dark"
+                          : "text-zd-teal/60"
+                      }
                     >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleOwner(o)} />
-                      <span>{o}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        {isManager && (
-          <div>
-            <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-              SE
-            </label>
-            <Popover open={seOpen} onOpenChange={setSeOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+                      {ownerLabel}
+                    </span>
+                    <span className="text-zd-teal/40 text-xs">▾</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-56 p-2 max-h-72 overflow-y-auto"
                 >
-                  <span className={filters.ses.length ? "text-zd-dark" : "text-zd-teal/60"}>
-                    {seLabel}
-                  </span>
-                  <span className="text-zd-teal/40 text-xs">▾</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
-                <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
-                  <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-                    SEs
-                  </span>
-                  {filters.ses.length > 0 && (
+                  <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                    <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                      AEs
+                    </span>
+                    {filters.owners.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => update("owners", [])}
+                        className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                      >
+                        CLEAR
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {availableOwners.map((o) => {
+                      const checked = filters.owners.includes(o);
+                      return (
+                        <label
+                          key={o}
+                          className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleOwner(o)}
+                          />
+                          <span>{o}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {isManager && (
+              <div>
+                <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+                  SE
+                </label>
+                <Popover open={seOpen} onOpenChange={setSeOpen}>
+                  <PopoverTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => update("ses", [])}
-                      className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                      className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
                     >
-                      CLEAR
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  {availableSEs.map((s) => {
-                    const checked = filters.ses.includes(s);
-                    return (
-                      <label
-                        key={s}
-                        className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                      <span
+                        className={
+                          filters.ses.length
+                            ? "text-zd-dark"
+                            : "text-zd-teal/60"
+                        }
                       >
-                        <Checkbox checked={checked} onCheckedChange={() => toggleSe(s)} />
-                        <span>{s}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-        )}
+                        {seLabel}
+                      </span>
+                      <span className="text-zd-teal/40 text-xs">▾</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-56 p-2 max-h-72 overflow-y-auto"
+                  >
+                    <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                      <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                        SEs
+                      </span>
+                      {filters.ses.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => update("ses", [])}
+                          className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                        >
+                          CLEAR
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {availableSEs.map((s) => {
+                        const checked = filters.ses.includes(s);
+                        return (
+                          <label
+                            key={s}
+                            className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => toggleSe(s)}
+                            />
+                            <span>{s}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            )}
 
-        <div>
-          <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            Stage
-          </label>
-          <Popover open={stageOpen} onOpenChange={setStageOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              >
-                <span className={filters.stages.length ? "text-zd-dark" : "text-zd-teal/60"}>
-                  {stageLabel}
-                </span>
-                <span className="text-zd-teal/40 text-xs">▾</span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-2 max-h-80 overflow-y-auto">
-              <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
-                <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-                  Stages
-                </span>
-                {filters.stages.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+                Stage
+              </label>
+              <Popover open={stageOpen} onOpenChange={setStageOpen}>
+                <PopoverTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => update("stages", [])}
-                    className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                    className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
                   >
-                    CLEAR
-                  </button>
-                )}
-              </div>
-              <div className="space-y-1 pb-1 mb-1 border-b border-zd-border">
-                <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
-                  <Checkbox
-                    checked={openStages.length > 0 && openStages.every((s) => filters.stages.includes(s))}
-                    onCheckedChange={() => toggleStageGroup(openStages)}
-                  />
-                  <span>Open</span>
-                </label>
-                <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
-                  <Checkbox
-                    checked={CLOSED_STAGES.every((s) => filters.stages.includes(s))}
-                    onCheckedChange={() => toggleStageGroup(CLOSED_STAGES)}
-                  />
-                  <span>Closed</span>
-                </label>
-              </div>
-              <div className="space-y-1">
-                {availableStages.map((s) => {
-                  const checked = filters.stages.includes(s);
-                  return (
-                    <label
-                      key={s}
-                      className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                    <span
+                      className={
+                        filters.stages.length
+                          ? "text-zd-dark"
+                          : "text-zd-teal/60"
+                      }
                     >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleStage(s)} />
-                      <span>{s}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            Close Date
-          </label>
-          <Popover open={monthOpen} onOpenChange={setMonthOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-              >
-                <span className={filters.closeMonths.length ? "text-zd-dark" : "text-zd-teal/60"}>
-                  {monthLabel}
-                </span>
-                <span className="text-zd-teal/40 text-xs">▾</span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
-              <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
-                <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-                  Months
-                </span>
-                {filters.closeMonths.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => update("closeMonths", [])}
-                    className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
-                  >
-                    CLEAR
+                      {stageLabel}
+                    </span>
+                    <span className="text-zd-teal/40 text-xs">▾</span>
                   </button>
-                )}
-              </div>
-              <div className="space-y-1">
-                {monthOptions.map((m) => {
-                  const checked = filters.closeMonths.includes(m);
-                  return (
-                    <label
-                      key={m}
-                      className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
-                    >
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-56 p-2 max-h-80 overflow-y-auto"
+                >
+                  <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                    <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                      Stages
+                    </span>
+                    {filters.stages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => update("stages", [])}
+                        className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                      >
+                        CLEAR
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1 pb-1 mb-1 border-b border-zd-border">
+                    <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
                       <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => toggleMonth(m)}
+                        checked={
+                          openStages.length > 0 &&
+                          openStages.every((s) => filters.stages.includes(s))
+                        }
+                        onCheckedChange={() => toggleStageGroup(openStages)}
                       />
-                      <span>{MONTH_LABEL(m)}</span>
+                      <span>Open</span>
                     </label>
-                  );
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
+                    <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
+                      <Checkbox
+                        checked={CLOSED_STAGES.every((s) =>
+                          filters.stages.includes(s),
+                        )}
+                        onCheckedChange={() => toggleStageGroup(CLOSED_STAGES)}
+                      />
+                      <span>Closed</span>
+                    </label>
+                  </div>
+                  <div className="space-y-1">
+                    {availableStages.map((s) => {
+                      const checked = filters.stages.includes(s);
+                      return (
+                        <label
+                          key={s}
+                          className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleStage(s)}
+                          />
+                          <span>{s}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
 
-        <div>
-          <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
-            ARR Minimum
-          </label>
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={0}
-              value={filters.arrMin}
-              onChange={(e) => update("arrMin", e.target.value)}
-              placeholder="Any"
-              className="w-24 bg-white border border-zd-border rounded px-2 py-1.5 text-sm font-mono placeholder:text-zd-teal/40"
-            />
-            <span className="text-xs text-zd-teal/50">$</span>
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+                Close Date
+              </label>
+              <Popover open={monthOpen} onOpenChange={setMonthOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+                  >
+                    <span
+                      className={
+                        filters.closeMonths.length
+                          ? "text-zd-dark"
+                          : "text-zd-teal/60"
+                      }
+                    >
+                      {monthLabel}
+                    </span>
+                    <span className="text-zd-teal/40 text-xs">▾</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-56 p-2 max-h-72 overflow-y-auto"
+                >
+                  <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
+                    <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+                      Months
+                    </span>
+                    {filters.closeMonths.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => update("closeMonths", [])}
+                        className="text-[10px] font-bold text-zd-teal hover:text-zd-dark"
+                      >
+                        CLEAR
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {monthOptions.map((m) => {
+                      const checked = filters.closeMonths.includes(m);
+                      return (
+                        <label
+                          key={m}
+                          className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() => toggleMonth(m)}
+                          />
+                          <span>{MONTH_LABEL(m)}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-zd-teal/50 uppercase tracking-wider mb-1">
+                ARR Minimum
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  value={filters.arrMin}
+                  onChange={(e) => update("arrMin", e.target.value)}
+                  placeholder="Any"
+                  className="w-24 bg-white border border-zd-border rounded px-2 py-1.5 text-sm font-mono placeholder:text-zd-teal/40"
+                />
+                <span className="text-xs text-zd-teal/50">$</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onChange(DEFAULT_FILTERS)}
+              className="px-3 py-1.5 text-xs font-bold text-zd-teal hover:text-zd-dark transition-colors"
+            >
+              RESET
+            </button>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => onChange(DEFAULT_FILTERS)}
-          className="px-3 py-1.5 text-xs font-bold text-zd-teal hover:text-zd-dark transition-colors"
-        >
-          RESET
-        </button>
-      </div>
-      </div>
       )}
     </div>
   );

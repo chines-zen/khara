@@ -348,7 +348,7 @@ function ActivitiesPage() {
     queryFn: () => fetchActivities(),
     retry: false,
   });
-  const activities = data?.activities ?? [];
+  const activities = useMemo(() => data?.activities ?? [], [data?.activities]);
 
   const filtered = useMemo(
     () => applyFilters(activities, filters),

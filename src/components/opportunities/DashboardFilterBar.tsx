@@ -1,5 +1,9 @@
 import { useMemo, useState } from "react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CLOSED_STAGES, type Opportunity } from "@/lib/opportunities";
 
@@ -32,9 +36,16 @@ const MONTH_LABEL = (key: string) => {
   return d.toLocaleString("en-US", { month: "short", year: "numeric" });
 };
 
-export function DashboardFilterBar({ filters, onChange, opportunities, isManager }: Props) {
-  const update = <K extends keyof DashboardFilters>(key: K, value: DashboardFilters[K]) =>
-    onChange({ ...filters, [key]: value });
+export function DashboardFilterBar({
+  filters,
+  onChange,
+  opportunities,
+  isManager,
+}: Props) {
+  const update = <K extends keyof DashboardFilters>(
+    key: K,
+    value: DashboardFilters[K],
+  ) => onChange({ ...filters, [key]: value });
 
   // Derive available owners from data
   const availableOwners = useMemo(() => {
@@ -65,7 +76,8 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
 
   // "Open" = any stage present in the data that isn't Won/Lost
   const openStages = useMemo(
-    () => availableStages.filter((s) => !(CLOSED_STAGES as string[]).includes(s)),
+    () =>
+      availableStages.filter((s) => !(CLOSED_STAGES as string[]).includes(s)),
     [availableStages],
   );
 
@@ -100,7 +112,9 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
 
   const monthOptions = useMemo(() => {
     const set = new Set<string>();
-    opportunities.forEach((o) => set.add(o.closeDate.slice(0, 7)));
+    opportunities.forEach((o) => {
+      if (o.closeDate) set.add(o.closeDate.slice(0, 7));
+    });
     return Array.from(set).sort();
   }, [opportunities]);
 
@@ -157,13 +171,20 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                 type="button"
                 className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
               >
-                <span className={filters.owners.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                <span
+                  className={
+                    filters.owners.length ? "text-zd-dark" : "text-zd-teal/60"
+                  }
+                >
                   {ownerLabel}
                 </span>
                 <span className="text-zd-teal/40 text-xs">▾</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
+            <PopoverContent
+              align="start"
+              className="w-56 p-2 max-h-72 overflow-y-auto"
+            >
               <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
                 <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
                   AEs
@@ -186,7 +207,10 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                       key={o}
                       className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
                     >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleOwner(o)} />
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleOwner(o)}
+                      />
                       <span>{o}</span>
                     </label>
                   );
@@ -207,13 +231,20 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                   type="button"
                   className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
                 >
-                  <span className={filters.ses.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                  <span
+                    className={
+                      filters.ses.length ? "text-zd-dark" : "text-zd-teal/60"
+                    }
+                  >
                     {seLabel}
                   </span>
                   <span className="text-zd-teal/40 text-xs">▾</span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
+              <PopoverContent
+                align="start"
+                className="w-56 p-2 max-h-72 overflow-y-auto"
+              >
                 <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
                   <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
                     SEs
@@ -236,7 +267,10 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                         key={s}
                         className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
                       >
-                        <Checkbox checked={checked} onCheckedChange={() => toggleSe(s)} />
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleSe(s)}
+                        />
                         <span>{s}</span>
                       </label>
                     );
@@ -257,13 +291,20 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                 type="button"
                 className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
               >
-                <span className={filters.stages.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                <span
+                  className={
+                    filters.stages.length ? "text-zd-dark" : "text-zd-teal/60"
+                  }
+                >
                   {stageLabel}
                 </span>
                 <span className="text-zd-teal/40 text-xs">▾</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-2 max-h-80 overflow-y-auto">
+            <PopoverContent
+              align="start"
+              className="w-56 p-2 max-h-80 overflow-y-auto"
+            >
               <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
                 <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
                   Stages
@@ -281,14 +322,19 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
               <div className="space-y-1 pb-1 mb-1 border-b border-zd-border">
                 <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
                   <Checkbox
-                    checked={openStages.length > 0 && openStages.every((s) => filters.stages.includes(s))}
+                    checked={
+                      openStages.length > 0 &&
+                      openStages.every((s) => filters.stages.includes(s))
+                    }
                     onCheckedChange={() => toggleStageGroup(openStages)}
                   />
                   <span>Open</span>
                 </label>
                 <label className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg font-semibold">
                   <Checkbox
-                    checked={CLOSED_STAGES.every((s) => filters.stages.includes(s))}
+                    checked={CLOSED_STAGES.every((s) =>
+                      filters.stages.includes(s),
+                    )}
                     onCheckedChange={() => toggleStageGroup(CLOSED_STAGES)}
                   />
                   <span>Closed</span>
@@ -302,7 +348,10 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                       key={s}
                       className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
                     >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleStage(s)} />
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleStage(s)}
+                      />
                       <span>{s}</span>
                     </label>
                   );
@@ -322,13 +371,22 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                 type="button"
                 className="min-w-[160px] bg-white border border-zd-border rounded px-3 py-1.5 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
               >
-                <span className={filters.closeMonths.length ? "text-zd-dark" : "text-zd-teal/60"}>
+                <span
+                  className={
+                    filters.closeMonths.length
+                      ? "text-zd-dark"
+                      : "text-zd-teal/60"
+                  }
+                >
                   {monthLabel}
                 </span>
                 <span className="text-zd-teal/40 text-xs">▾</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-2 max-h-72 overflow-y-auto">
+            <PopoverContent
+              align="start"
+              className="w-56 p-2 max-h-72 overflow-y-auto"
+            >
               <div className="flex items-center justify-between px-1 pb-2 mb-1 border-b border-zd-border">
                 <span className="text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
                   Months
@@ -351,7 +409,10 @@ export function DashboardFilterBar({ filters, onChange, opportunities, isManager
                       key={m}
                       className="flex items-center gap-2 px-1 py-1 rounded text-sm cursor-pointer hover:bg-zd-bg"
                     >
-                      <Checkbox checked={checked} onCheckedChange={() => toggleMonth(m)} />
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleMonth(m)}
+                      />
                       <span>{MONTH_LABEL(m)}</span>
                     </label>
                   );

@@ -90,6 +90,7 @@ function applyFilters(
     )
       return false;
     if (filters.closeMonths.length) {
+      if (!o.closeDate) return false;
       const monthKey = o.closeDate.slice(0, 7);
       if (!filters.closeMonths.includes(monthKey)) return false;
     }
@@ -138,6 +139,7 @@ function buildChartData(
 ): { rows: ChartRow[]; series: ChartSeries[] } {
   const byMonth = new Map<string, Opportunity[]>();
   opps.forEach((o) => {
+    if (!o.closeDate) return;
     const key = o.closeDate.slice(0, 7);
     if (!byMonth.has(key)) byMonth.set(key, []);
     byMonth.get(key)!.push(o);
@@ -198,7 +200,7 @@ function ChartTooltip({
   payload,
 }: {
   active?: boolean;
-  payload?: any[];
+  payload?: Array<{ payload: ChartRow }>;
 }) {
   if (!active || !payload || !payload.length) return null;
   const row = payload[0].payload as ChartRow;
@@ -239,7 +241,10 @@ function DashboardPage() {
     queryFn: fetchOpportunities,
     retry: false,
   });
-  const opportunities = loaderOpportunities?.opportunities ?? [];
+  const opportunities = useMemo(
+    () => loaderOpportunities?.opportunities ?? [],
+    [loaderOpportunities?.opportunities],
+  );
   const isManager = useIsManager();
 
   const groupByOptions: GroupByOption[] = isManager
@@ -263,7 +268,8 @@ function DashboardPage() {
     const wonValue = won.reduce((s, o) => s + o.amount, 0);
     const winRateBase = winRateMode === "count" ? closed : closedValue;
     const winRateNumerator = winRateMode === "count" ? won.length : wonValue;
-    const winRate = winRateBase > 0 ? (winRateNumerator / winRateBase) * 100 : 0;
+    const winRate =
+      winRateBase > 0 ? (winRateNumerator / winRateBase) * 100 : 0;
     return {
       total,
       wonCount: won.length,
