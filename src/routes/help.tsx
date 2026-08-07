@@ -32,7 +32,15 @@ function HelpPage() {
     },
     {
       name: "Punch List",
-      description: <>Curated list of opps that need your attention.</>,
+      description: (
+        <>
+          Curated list of opps that need your attention.
+          <br />
+          Find opps with outdated notes, low D-Scores, etc.
+          <br />
+          Head to settings to customize your punch list filters.
+        </>
+      ),
       to: "/punch-list",
     },
     ...(isManager
@@ -40,13 +48,13 @@ function HelpPage() {
       : [
           {
             name: "Blind Spots",
-            description: <>Opps that may have slipped under the radar.</>,
+            description: <>Opps from your team with no SE assigned.</>,
             to: "/blind-spots",
           },
         ]),
     {
       name: "Activities",
-      description: <>All of your hard work!</>,
+      description: <>See all of your hard work!</>,
       to: "/activities",
     },
   ];
