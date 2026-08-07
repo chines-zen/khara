@@ -14,16 +14,25 @@ export const Route = createFileRoute("/help")({
 function HelpPage() {
   const isManager = useIsManager();
   const sections = [
-    { name: "Metrics", description: "Overview of your business", to: "/" },
+    {
+      name: "Metrics",
+      description: <>See your pipelines and win rates across your opps</>,
+      to: "/",
+    },
     {
       name: "Opportunities",
-      description:
-        "See your SFDC notes, D-Scores, and Gong calls, all in one place. Generate an AI summary to get a 360 view of the opp health.",
+      description: (
+        <>
+          See your SFDC notes, D-Scores, and Gong calls, all in one place.
+          <br />
+          Generate an AI summary to get a 360 view of the opp health.
+        </>
+      ),
       to: "/opportunities",
     },
     {
       name: "Punch List",
-      description: "Curated list of opps that need your attention.",
+      description: <>Curated list of opps that need your attention.</>,
       to: "/punch-list",
     },
     ...(isManager
@@ -31,13 +40,13 @@ function HelpPage() {
       : [
           {
             name: "Blind Spots",
-            description: "Opps that may have slipped under the radar.",
+            description: <>Opps that may have slipped under the radar.</>,
             to: "/blind-spots",
           },
         ]),
     {
       name: "Activities",
-      description: "All of your hard work!",
+      description: <>All of your hard work!</>,
       to: "/activities",
     },
   ];
