@@ -126,7 +126,7 @@ function BlindSpotsPage() {
       <td className="px-4 py-2 text-zd-teal/90">{opp.account}</td>
       <td className="px-4 py-2 text-zd-teal/90">{opp.owner}</td>
       <td className="px-4 py-2 text-right font-mono text-zd-dark">
-        ${opp.amount.toLocaleString()}
+        ${Math.round(opp.amount).toLocaleString()}
       </td>
       <td className="px-4 py-2 text-zd-teal/90">{opp.stage}</td>
       <td className="px-4 py-2 font-mono text-zd-teal/80 whitespace-nowrap">
@@ -233,10 +233,8 @@ function BlindSpotsPage() {
   return (
     <main className="p-6 space-y-4">
       <p className="text-base text-zd-teal/80">
-        <strong>
-          {opportunities.length} active opportunities owned by your AEs, without
-          an SE in SFDC.
-        </strong>
+        {opportunities.length} active opportunities owned by your AEs without an
+        SE in SFDC.
       </p>
 
       {!data?.metadata.configured ? (

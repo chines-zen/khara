@@ -870,7 +870,7 @@ function SettingsPage() {
                   type="button"
                   onClick={addScEmail}
                   disabled={!scEmailInput.trim()}
-                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="rounded-md bg-zd-dark px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zd-green focus-visible:ring-offset-2 disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -906,7 +906,7 @@ function SettingsPage() {
             )}
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+              className="rounded-md bg-zd-green px-4 py-2 text-xs font-bold uppercase tracking-wider text-zd-dark transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zd-green focus-visible:ring-offset-2"
             >
               Save
             </button>
@@ -922,7 +922,7 @@ function SettingsPage() {
             <button
               type="button"
               onClick={handleCuriousClick}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-red-600 text-white rounded hover:opacity-90 transition-opacity"
+              className="rounded-md bg-red-600 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
             >
               Do Not Click
             </button>
@@ -933,14 +933,14 @@ function SettingsPage() {
             <button
               type="button"
               onClick={() => router.navigate({ to: "/admin" })}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-dark text-white rounded hover:opacity-90 transition-opacity"
+              className="rounded-md bg-zd-dark px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zd-green focus-visible:ring-offset-2"
             >
               Diagnostics
             </button>
             <button
               type="button"
               onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-zd-green text-zd-dark rounded hover:opacity-90 transition-opacity"
+              className="rounded-md bg-zd-green px-4 py-2 text-xs font-bold uppercase tracking-wider text-zd-dark transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zd-green focus-visible:ring-offset-2"
             >
               Advanced Settings
             </button>
