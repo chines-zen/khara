@@ -425,7 +425,7 @@ function AppSidebar({
   return (
     <Sidebar
       collapsible="icon"
-      className="border-zd-dark/20 bg-zd-dark text-white [&_[data-sidebar=menu-button]]:text-white/80 [&_[data-sidebar=menu-button]:hover]:text-white [&_[data-sidebar=menu-button][data-active=true]]:bg-white/10 [&_[data-sidebar=menu-button][data-active=true]]:text-zd-green [&_[data-sidebar=menu-sub-button]]:text-white/70 [&_[data-sidebar=menu-sub-button][data-active=true]]:bg-white/10 [&_[data-sidebar=menu-sub-button][data-active=true]]:text-zd-green [&_[data-sidebar=sidebar]]:bg-zd-dark [&_[data-sidebar=sidebar]]:text-white"
+      className="border-zd-dark/20 bg-zd-dark text-white [&_[data-sidebar=menu-button]]:text-white/80 [&_[data-sidebar=menu-button]:hover]:!text-white [&_[data-sidebar=menu-button]:hover>svg]:!text-white [&_[data-sidebar=menu-button][data-active=true]]:bg-white/10 [&_[data-sidebar=menu-button][data-active=true]]:text-zd-green [&_[data-sidebar=menu-sub-button]]:text-white/70 [&_[data-sidebar=menu-sub-button][data-active=true]]:bg-white/10 [&_[data-sidebar=menu-sub-button][data-active=true]]:text-zd-green [&_[data-sidebar=sidebar]]:bg-zd-dark [&_[data-sidebar=sidebar]]:text-white"
     >
       <SidebarHeader className="h-[60px] shrink-0 justify-center border-b border-white/10 p-2">
         <SidebarMenu>

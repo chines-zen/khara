@@ -573,19 +573,19 @@ export function OpportunityDetail({
           <TabsList className="sticky top-[60px] z-40 -mx-6 w-[calc(100%+3rem)] h-auto rounded-none border-b border-zd-border bg-white/95 p-0 px-6 justify-start backdrop-blur-sm">
             <TabsTrigger
               value="sfdc-notes"
-              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zd-teal/50 shadow-none data-[state=active]:border-zd-teal data-[state=active]:bg-transparent data-[state=active]:text-zd-dark data-[state=active]:shadow-none"
+              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 text-lg font-bold uppercase tracking-tight text-zd-teal/50 shadow-none data-[state=active]:border-zd-teal data-[state=active]:bg-transparent data-[state=active]:text-zd-dark data-[state=active]:shadow-none"
             >
               SFDC Notes
             </TabsTrigger>
             <TabsTrigger
               value="d-scores"
-              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zd-teal/50 shadow-none data-[state=active]:border-zd-teal data-[state=active]:bg-transparent data-[state=active]:text-zd-dark data-[state=active]:shadow-none"
+              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 text-lg font-bold uppercase tracking-tight text-zd-teal/50 shadow-none data-[state=active]:border-zd-teal data-[state=active]:bg-transparent data-[state=active]:text-zd-dark data-[state=active]:shadow-none"
             >
               D-Scores
             </TabsTrigger>
             <TabsTrigger
               value="gong-calls"
-              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-zd-teal/50 shadow-none data-[state=active]:border-zd-teal data-[state=active]:bg-transparent data-[state=active]:text-zd-dark data-[state=active]:shadow-none"
+              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 text-lg font-bold uppercase tracking-tight text-zd-teal/50 shadow-none data-[state=active]:border-zd-teal data-[state=active]:bg-transparent data-[state=active]:text-zd-dark data-[state=active]:shadow-none"
             >
               Gong Calls
             </TabsTrigger>
