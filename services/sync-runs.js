@@ -93,3 +93,30 @@ export async function getRecentSyncRuns(userId, limit = 10) {
   );
   return result.rows;
 }
+
+export async function getSyncRunStatus(userId, runId) {
+  const result = await pool.query(
+    `SELECT r.id, r.status, r.started_at, r.completed_at, r.duration_ms, r.error,
+            COALESCE(
+              jsonb_agg(
+                jsonb_build_object(
+                  'domain', d.domain,
+                  'status', d.status,
+                  'startedAt', d.started_at,
+                  'completedAt', d.completed_at,
+                  'durationMs', d.duration_ms,
+                  'records', d.records,
+                  'syncedTargets', d.synced_targets,
+                  'error', d.error
+                ) ORDER BY d.domain
+              ) FILTER (WHERE d.id IS NOT NULL),
+              '[]'::jsonb
+            ) AS domains
+     FROM sync_runs r
+     LEFT JOIN sync_run_domains d ON d.sync_run_id = r.id
+     WHERE r.user_id = $1 AND r.id = $2
+     GROUP BY r.id`,
+    [userId, runId],
+  );
+  return result.rows[0] ?? null;
+}

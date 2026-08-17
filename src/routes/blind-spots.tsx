@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ExternalLink,
+} from "lucide-react";
 import { fetchBlindSpots, setBlindSpotReviewed } from "@/lib/api/blind-spots";
 import { sfRecordUrl } from "@/lib/sfdc";
 import { useIsManager } from "@/hooks/use-is-manager";
@@ -31,6 +36,10 @@ function BlindSpotsPage() {
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [reviewedExpanded, setReviewedExpanded] = useState(true);
   const [unreviewedExpanded, setUnreviewedExpanded] = useState(true);
+  const [sort, setSort] = useState<{
+    column: "name" | "account" | "owner" | "amount" | "stage" | "closeDate";
+    direction: "asc" | "desc";
+  }>({ column: "name", direction: "asc" });
 
   useEffect(() => {
     setReviewedIds(new Set(data?.reviewedOpportunityIds ?? []));
@@ -66,20 +75,46 @@ function BlindSpotsPage() {
     () => data?.opportunities ?? [],
     [data?.opportunities],
   );
+  const compareOpportunities = (a: (typeof opportunities)[number], b: (typeof opportunities)[number]) => {
+    const aValue = a[sort.column];
+    const bValue = b[sort.column];
+    let comparison = 0;
+
+    if (sort.column === "amount") {
+      comparison = a.amount - b.amount;
+    } else if (sort.column === "closeDate") {
+      comparison = (a.closeDate ?? "").localeCompare(b.closeDate ?? "");
+    } else {
+      comparison = String(aValue ?? "").localeCompare(String(bValue ?? ""), undefined, {
+        sensitivity: "base",
+      });
+    }
+
+    return (sort.direction === "asc" ? comparison : -comparison) ||
+      a.name.localeCompare(b.name);
+  };
   const reviewedOpportunities = useMemo(
     () =>
       opportunities
         .filter((opportunity) => reviewedIds.has(opportunity.id))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [opportunities, reviewedIds],
+        .sort(compareOpportunities),
+    [opportunities, reviewedIds, sort],
   );
   const unreviewedOpportunities = useMemo(
     () =>
       opportunities
         .filter((opportunity) => !reviewedIds.has(opportunity.id))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [opportunities, reviewedIds],
+        .sort(compareOpportunities),
+    [opportunities, reviewedIds, sort],
   );
+
+  const setSortColumn = (column: typeof sort.column) => {
+    setSort((current) =>
+      current.column === column
+        ? { column, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { column, direction: "asc" },
+    );
+  };
 
   if (isManager) {
     return (
@@ -191,12 +226,33 @@ function BlindSpotsPage() {
           <table className="w-full text-sm">
             <thead className="bg-zd-bg/50 border-b border-zd-border">
               <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
-                <th className="px-4 py-2">Opp</th>
-                <th className="px-4 py-2">Account</th>
-                <th className="px-4 py-2">AE</th>
-                <th className="px-4 py-2 text-right">ARR</th>
-                <th className="px-4 py-2">Stage</th>
-                <th className="px-4 py-2">Close Date</th>
+                {[
+                  ["name", "Opp"],
+                  ["account", "Account"],
+                  ["owner", "AE"],
+                  ["amount", "ARR"],
+                  ["stage", "Stage"],
+                  ["closeDate", "Close Date"],
+                ].map(([column, label]) => (
+                  <th
+                    key={column}
+                    className={`px-4 py-2 ${column === "amount" ? "text-right" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSortColumn(column as typeof sort.column)}
+                      className="inline-flex items-center gap-1 hover:text-zd-dark"
+                    >
+                      {label}
+                      {sort.column === column &&
+                        (sort.direction === "asc" ? (
+                          <ArrowUp className="size-3" />
+                        ) : (
+                          <ArrowDown className="size-3" />
+                        ))}
+                    </button>
+                  </th>
+                ))}
                 <th className="px-4 py-2 text-center">Reviewed</th>
                 <th className="px-4 py-2 text-right">
                   <button

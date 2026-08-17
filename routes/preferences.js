@@ -6,7 +6,7 @@ import {
   deleteUserPreference,
   migratePreferencesFromLocalStorage
 } from '../services/preferences.js';
-import { resolveScopeUserIds } from '../services/opp-scope.js';
+import { resolveOnboardingUsers } from '../services/sc-lookup.js';
 
 const router = express.Router();
 
@@ -72,25 +72,41 @@ router.put('/:key', async (req, res) => {
       });
     }
 
-    const result = await setUserPreference(userId, key, value);
+    let valueToSave = value;
+    const shouldValidateOppScope =
+      key === OPP_SCOPE_KEY && req.user.is_manager && Array.isArray(value?.scEmails);
+    const shouldValidateBlindSpots =
+      key === BLIND_SPOTS_SCOPE_KEY && !req.user.is_manager && Array.isArray(value?.ownerEmails);
 
-    // A manager saving their SE list: resolve those emails to USER_IDs now and
-    // cache them on the preference, so each later cache refresh is a single
-    // Snowflake query instead of an identity lookup plus the data query.
-    //
-    // Best-effort — a Snowflake failure must not fail the save, since the
-    // preference itself is already stored and the refresh path falls back to a
-    // live lookup when no cached IDs are present.
-    let scUserIdResolution = null;
-    if (key === OPP_SCOPE_KEY && req.user.is_manager && Array.isArray(value?.scEmails) && value.scEmails.length > 0) {
-      try {
-        scUserIdResolution = await resolveScopeUserIds(userId, req.user.email);
-      } catch (error) {
-        console.error('Failed to resolve SE emails to Snowflake USER_IDs:', error);
+    if (shouldValidateOppScope || shouldValidateBlindSpots) {
+      const field = shouldValidateOppScope ? 'scEmails' : 'ownerEmails';
+      const emails = [...new Set(
+        value[field]
+          .filter((email) => typeof email === 'string')
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
+      )];
+      const results = await resolveOnboardingUsers(emails, req.user.email);
+      const invalidEmails = results.filter((result) => !result.found).map((result) => result.email);
+
+      if (invalidEmails.length > 0) {
+        return res.status(422).json({
+          error: 'Invalid scope emails',
+          code: 'INVALID_SCOPE_EMAILS',
+          invalidEmails,
+          details: `These emails were not found in Snowflake: ${invalidEmails.join(', ')}`,
+        });
+      }
+
+      valueToSave = { ...value, [field]: emails };
+      if (shouldValidateOppScope) {
+        valueToSave.scUserIds = results.map((result) => result.userId);
+        valueToSave.scUserIdsFor = emails;
       }
     }
 
-    res.json(scUserIdResolution ? { ...result, scUserIdResolution } : result);
+    const result = await setUserPreference(userId, key, valueToSave);
+    res.json(result);
   } catch (error) {
     console.error('Error setting preference:', error);
     res.status(500).json({ error: 'Failed to set preference' });

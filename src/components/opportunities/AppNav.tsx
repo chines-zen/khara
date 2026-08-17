@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   Circle,
   LoaderCircle,
+  XCircle,
 } from "lucide-react";
 import {
   useQuery,
@@ -33,7 +34,11 @@ import {
   DataExpiredError,
   fetchOpportunities,
 } from "@/lib/api/sc-opportunities";
-import { syncSnowflakeData } from "@/lib/api/snowflake-data-sync";
+import {
+  syncSnowflakeData,
+  type SnowflakeSyncDomainName,
+  type SnowflakeSyncRunStatus,
+} from "@/lib/api/snowflake-data-sync";
 import {
   DATA_SYNC_PENDING_QUERY_KEY,
   fetchDataSyncPending,
@@ -52,7 +57,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Progress } from "@/components/ui/progress";
 import {
   Sidebar,
   SidebarContent,
@@ -80,17 +84,13 @@ import {
 // in-flight state survives AppNav unmounting/remounting when the user navigates
 // between tabs mid-sync. A component-local useState would reset on remount.
 const REFRESH_MUTATION_KEY = ["appNavRefresh"];
-const SYNC_PROGRESS_DURATION_MS = 40_000;
-const SYNC_STEPS = [
-  { label: "Getting opportunity data", weight: 18 },
-  { label: "Getting activity data", weight: 24 },
-  { label: "Getting D-Score data", weight: 10 },
-  { label: "Getting Gong call data", weight: 14 },
-] as const;
-const SYNC_STEP_WEIGHT_TOTAL = SYNC_STEPS.reduce(
-  (total, step) => total + step.weight,
-  0,
-);
+const SYNC_DOMAINS: { name: SnowflakeSyncDomainName; label: string }[] = [
+  { name: "opportunities", label: "Opportunities" },
+  { name: "activities", label: "Activities" },
+  { name: "blindSpots", label: "Blind Spots" },
+  { name: "dispassionateReviews", label: "D-Scores" },
+  { name: "gongCalls", label: "Gong Calls" },
+];
 
 function formatLastRefreshed(iso: string | undefined, timezone: string) {
   if (!iso) return "—";
@@ -113,18 +113,14 @@ export function AppNav({ children }: { children?: ReactNode }) {
   const timezone = useTimezone();
   const isManager = useIsManager();
   const queryClient = useQueryClient();
-  const [punchListSettings, setPunchListSettings] = useState<PunchListSettings>(
-    DEFAULT_PUNCH_LIST_SETTINGS,
+  const { data: savedPunchListSettings } = useQuery({
+    queryKey: ["punchListSettings"],
+    queryFn: () => fetchUserPreference<PunchListSettings>("punchListSettings"),
+  });
+  const punchListSettings = useMemo(
+    () => ({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...savedPunchListSettings }),
+    [savedPunchListSettings],
   );
-
-  useEffect(() => {
-    fetchUserPreference<PunchListSettings>("punchListSettings").then(
-      (saved) => {
-        if (saved)
-          setPunchListSettings({ ...DEFAULT_PUNCH_LIST_SETTINGS, ...saved });
-      },
-    );
-  }, []);
 
   // retry: false must match every other observer of this key (the dashboard and
   // opportunities pages). Mismatched retry settings on a shared key resolve by
@@ -179,13 +175,22 @@ export function AppNav({ children }: { children?: ReactNode }) {
     [data?.opportunities, hiddenIds, punchListSettings],
   );
 
-  const blindSpotsCount = blindSpotsData?.opportunities.length ?? 0;
+  const blindSpotsCount = useMemo(() => {
+    if (!blindSpotsData) return 0;
+    const reviewedIds = new Set(blindSpotsData.reviewedOpportunityIds ?? []);
+    return blindSpotsData.opportunities.filter(
+      (opportunity) => !reviewedIds.has(opportunity.id),
+    ).length;
+  }, [blindSpotsData]);
 
   // The mutation state lives on the QueryClient, so isRefreshing reflects any
   // in-flight sync even after this AppNav instance remounts on tab navigation.
   const isRefreshing = useIsMutating({ mutationKey: REFRESH_MUTATION_KEY }) > 0;
   const autoSyncAttempted = useRef(false);
   const [isFinishingSync, setIsFinishingSync] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SnowflakeSyncRunStatus | null>(
+    null,
+  );
 
   const { mutate: handleRefresh } = useMutation({
     mutationKey: REFRESH_MUTATION_KEY,
@@ -194,7 +199,9 @@ export function AppNav({ children }: { children?: ReactNode }) {
       // it resolves. That gives these cache-backed UI reads one completed scope
       // instead of refreshing opportunities now and Gong/D-Score data later on
       // a detail page.
-      await syncSnowflakeData();
+      setIsFinishingSync(false);
+      setSyncStatus(null);
+      await syncSnowflakeData(setSyncStatus);
       setIsFinishingSync(true);
       await new Promise((resolve) => window.setTimeout(resolve, 1000));
 
@@ -211,6 +218,7 @@ export function AppNav({ children }: { children?: ReactNode }) {
         }),
       ]);
       setIsFinishingSync(false);
+      setSyncStatus(null);
     },
   });
 
@@ -254,7 +262,11 @@ export function AppNav({ children }: { children?: ReactNode }) {
         />
         <div className="min-w-0 flex-1">{children}</div>
       </div>
-      <DataSyncProgressDialog open={isRefreshing} finishing={isFinishingSync} />
+      <DataSyncProgressDialog
+        open={isRefreshing}
+        finishing={isFinishingSync}
+        status={syncStatus}
+      />
     </SidebarProvider>
   );
 }
@@ -262,65 +274,13 @@ export function AppNav({ children }: { children?: ReactNode }) {
 export function DataSyncProgressDialog({
   open,
   finishing,
+  status,
 }: {
   open: boolean;
   finishing: boolean;
+  status?: SnowflakeSyncRunStatus | null;
 }) {
-  const [elapsedMs, setElapsedMs] = useState(0);
-  const [finishingStartedAt, setFinishingStartedAt] = useState<number | null>(
-    null,
-  );
-
-  useEffect(() => {
-    if (!open) {
-      setElapsedMs(0);
-      return;
-    }
-
-    const startedAt = Date.now();
-    const intervalId = window.setInterval(() => {
-      setElapsedMs(Date.now() - startedAt);
-    }, 250);
-
-    return () => window.clearInterval(intervalId);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !finishing) {
-      setFinishingStartedAt(null);
-      return;
-    }
-    setFinishingStartedAt(Date.now());
-  }, [open, finishing]);
-
-  const stepDurationsMs = SYNC_STEPS.map(
-    (step) =>
-      (step.weight / SYNC_STEP_WEIGHT_TOTAL) * SYNC_PROGRESS_DURATION_MS,
-  );
-  let elapsedBeforeStepMs = 0;
-  const activeStep = stepDurationsMs.findIndex((durationMs) => {
-    const isActive = elapsedMs < elapsedBeforeStepMs + durationMs;
-    if (!isActive) elapsedBeforeStepMs += durationMs;
-    return isActive;
-  });
-  const naturalProgress = Math.min(
-    100,
-    Math.round((elapsedMs / SYNC_PROGRESS_DURATION_MS) * 100),
-  );
-  const finishingProgress = finishingStartedAt
-    ? Math.min(1, (Date.now() - finishingStartedAt) / 1000)
-    : 0;
-  const overallProgress = finishing
-    ? Math.min(
-        100,
-        Math.round(
-          naturalProgress + (100 - naturalProgress) * finishingProgress,
-        ),
-      )
-    : naturalProgress;
-  const currentStepIndex =
-    finishing || activeStep === -1 ? SYNC_STEPS.length - 1 : activeStep;
-  const isFinalizing = finishing || elapsedMs >= SYNC_PROGRESS_DURATION_MS;
+  const isFinalizing = finishing;
 
   return (
     <AlertDialog open={open}>
@@ -336,72 +296,32 @@ export function DataSyncProgressDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="space-y-4 pt-2">
-          {SYNC_STEPS.map((step, index) => {
-            const stepStartMs = stepDurationsMs
-              .slice(0, index)
-              .reduce((total, durationMs) => total + durationMs, 0);
-            const isComplete = index < currentStepIndex;
-            const isActive = index === currentStepIndex;
-            const stepProgress = isComplete
-              ? 100
-              : isActive
-                ? finishing
-                  ? overallProgress
-                  : Math.min(
-                      100,
-                      Math.round(
-                        ((elapsedMs - stepStartMs) / stepDurationsMs[index]) *
-                          100,
-                      ),
-                    )
-                : 0;
-
+        <div className="space-y-3 pt-2">
+          {SYNC_DOMAINS.map((domain) => {
+            const current = status?.domains.find(
+              (item) => item.domain === domain.name,
+            );
+            const state = finishing ? "succeeded" : (current?.status ?? "pending");
             return (
-              <div key={step.label} className="space-y-1.5">
-                <div className="flex items-center gap-2 text-sm">
-                  {isComplete ? (
+              <div key={domain.name} className="flex items-center gap-2 text-sm">
+                  {state === "succeeded" ? (
                     <CheckCircle2 className="size-4 shrink-0 text-zd-green" />
-                  ) : isActive ? (
+                  ) : state === "failed" ? (
+                    <XCircle className="size-4 shrink-0 text-red-600" />
+                  ) : state === "running" ? (
                     <LoaderCircle className="size-4 shrink-0 animate-spin text-zd-teal" />
                   ) : (
                     <Circle className="size-4 shrink-0 text-zd-border" />
                   )}
-                  <span
-                    className={
-                      isComplete
-                        ? "text-zd-dark"
-                        : isActive
-                          ? "font-medium text-zd-dark"
-                          : "text-zd-teal/50"
-                    }
-                  >
-                    {step.label}
-                    {isActive ? "..." : ""}
+                  <span className={state === "succeeded" ? "text-zd-green" : state === "failed" ? "text-red-600" : state === "running" ? "font-medium text-zd-dark" : "text-zd-teal/50"}>
+                    {domain.label}
                   </span>
-                  {isComplete && (
-                    <span className="ml-auto text-xs text-zd-teal/60">
-                      Done
-                    </span>
-                  )}
+                  <span className="ml-auto text-xs capitalize text-zd-teal/60">
+                    {state}
+                  </span>
                 </div>
-                <Progress
-                  value={stepProgress}
-                  className="h-1.5 bg-zd-teal/15 [&>div]:bg-zd-green"
-                />
-              </div>
             );
           })}
-        </div>
-
-        <div className="space-y-1 pt-2">
-          <Progress
-            value={overallProgress}
-            className="h-2 bg-zd-teal/15 [&>div]:bg-zd-teal"
-          />
-          <p className="text-right font-mono text-xs text-zd-teal/60">
-            {isFinalizing ? "Finalizing" : `${overallProgress}%`}
-          </p>
         </div>
       </AlertDialogContent>
     </AlertDialog>

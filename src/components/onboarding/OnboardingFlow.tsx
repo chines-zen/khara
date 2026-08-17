@@ -9,7 +9,10 @@ import {
   type OnboardingEmailResult,
   type OnboardingScopeType,
 } from "@/lib/api/onboarding";
-import { syncSnowflakeData } from "@/lib/api/snowflake-data-sync";
+import {
+  syncSnowflakeData,
+  type SnowflakeSyncRunStatus,
+} from "@/lib/api/snowflake-data-sync";
 
 type Props = {
   me: Me | null;
@@ -34,6 +37,9 @@ export function OnboardingFlow({
   const [results, setResults] = useState<OnboardingEmailResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SnowflakeSyncRunStatus | null>(
+    null,
+  );
 
   useEffect(() => {
     if (emailSetup) setPhase("email");
@@ -138,7 +144,7 @@ export function OnboardingFlow({
     setPhase("sync");
     setError(null);
     try {
-      await syncSnowflakeData();
+      await syncSnowflakeData(setSyncStatus);
       await completeOnboarding();
       await onFinished();
     } catch (syncError) {
@@ -154,7 +160,13 @@ export function OnboardingFlow({
   };
 
   if (phase === "sync") {
-    return <DataSyncProgressDialog open finishing={false} />;
+    return (
+      <DataSyncProgressDialog
+        open
+        finishing={false}
+        status={syncStatus}
+      />
+    );
   }
 
   return (

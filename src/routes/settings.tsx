@@ -101,6 +101,7 @@ function SettingsPage() {
   const [isManager, setIsManager] = useState(false);
   const [scEmails, setScEmails] = useState<string[]>([]);
   const [scEmailInput, setScEmailInput] = useState("");
+  const [scopeError, setScopeError] = useState<string | null>(null);
   const [blindSpotsSettings, setBlindSpotsSettings] =
     useState<BlindSpotsSettings>({
       ownerEmails: [],
@@ -111,6 +112,7 @@ function SettingsPage() {
     });
   const [blindSpotEmailInput, setBlindSpotEmailInput] = useState("");
   const [blindSpotsSaved, setBlindSpotsSaved] = useState(false);
+  const [blindSpotsError, setBlindSpotsError] = useState<string | null>(null);
   // Signature of the scope fields (SE emails, ARR, close-date preset) as last
   // saved, so a save that changes any of them can flag data as needing a re-sync.
   const [savedScopeSignature, setSavedScopeSignature] = useState<string | null>(
@@ -222,16 +224,53 @@ function SettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await saveUserPreference("preferredName", preferredName.trim());
-    await saveUserPreference("dateFormat", dateFormat.trim());
-    await saveUserPreference("timezone", timezone);
-    if (isManager) {
+    setScopeError(null);
+    try {
+      await saveUserPreference("preferredName", preferredName.trim());
+      await saveUserPreference("dateFormat", dateFormat.trim());
+      await saveUserPreference("timezone", timezone);
+      if (isManager) {
+        const settings: OppScopeSettings = {
+          arrThreshold: Number(arrThreshold) || DEFAULT_ARR_THRESHOLD,
+          closeDatePreset,
+          closeDateFrom: closeDatePreset === "custom" ? closeDateFrom : null,
+          closeDateTo: closeDatePreset === "custom" ? closeDateTo : null,
+          scEmails,
+        };
+        await saveUserPreference("oppScopeSettings", settings);
+        await flagResyncIfScopeChanged(settings);
+        await fetch("/api/opportunities/my-sc-opps/cache", {
+          method: "DELETE",
+          credentials: "include",
+        });
+        queryClient.invalidateQueries({ queryKey: ["opportunities"] });
+        queryClient.invalidateQueries({
+          queryKey: MANAGER_SCOPE_GATE_QUERY_KEY,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: PREFERRED_NAME_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: TIMEZONE_QUERY_KEY });
+      setSaved(true);
+      setTimeout(() => {
+        router.history.back();
+      }, 250);
+    } catch (error) {
+      setScopeError(
+        error instanceof Error ? error.message : "Failed to save settings",
+      );
+    }
+  };
+
+  const handleScopeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setScopeError(null);
+    try {
       const settings: OppScopeSettings = {
         arrThreshold: Number(arrThreshold) || DEFAULT_ARR_THRESHOLD,
         closeDatePreset,
         closeDateFrom: closeDatePreset === "custom" ? closeDateFrom : null,
         closeDateTo: closeDatePreset === "custom" ? closeDateTo : null,
-        scEmails,
+        scEmails: isManager ? scEmails : [],
       };
       await saveUserPreference("oppScopeSettings", settings);
       await flagResyncIfScopeChanged(settings);
@@ -241,34 +280,15 @@ function SettingsPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["opportunities"] });
       queryClient.invalidateQueries({ queryKey: MANAGER_SCOPE_GATE_QUERY_KEY });
+      setScopeSaved(true);
+      setTimeout(() => setScopeSaved(false), 2000);
+    } catch (error) {
+      setScopeError(
+        error instanceof Error
+          ? error.message
+          : "Failed to save scope settings",
+      );
     }
-    queryClient.invalidateQueries({ queryKey: PREFERRED_NAME_QUERY_KEY });
-    queryClient.invalidateQueries({ queryKey: TIMEZONE_QUERY_KEY });
-    setSaved(true);
-    setTimeout(() => {
-      router.history.back();
-    }, 250);
-  };
-
-  const handleScopeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const settings: OppScopeSettings = {
-      arrThreshold: Number(arrThreshold) || DEFAULT_ARR_THRESHOLD,
-      closeDatePreset,
-      closeDateFrom: closeDatePreset === "custom" ? closeDateFrom : null,
-      closeDateTo: closeDatePreset === "custom" ? closeDateTo : null,
-      scEmails: isManager ? scEmails : [],
-    };
-    await saveUserPreference("oppScopeSettings", settings);
-    await flagResyncIfScopeChanged(settings);
-    await fetch("/api/opportunities/my-sc-opps/cache", {
-      method: "DELETE",
-      credentials: "include",
-    });
-    queryClient.invalidateQueries({ queryKey: ["opportunities"] });
-    queryClient.invalidateQueries({ queryKey: MANAGER_SCOPE_GATE_QUERY_KEY });
-    setScopeSaved(true);
-    setTimeout(() => setScopeSaved(false), 2000);
   };
 
   const addScEmail = () => {
@@ -300,22 +320,31 @@ function SettingsPage() {
 
   const saveBlindSpotsSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    await saveUserPreference("blindSpotsSettings", {
-      ...blindSpotsSettings,
-      arrThreshold:
-        Number(blindSpotsSettings.arrThreshold) || DEFAULT_ARR_THRESHOLD,
-      closeDateFrom:
-        blindSpotsSettings.closeDatePreset === "custom"
-          ? blindSpotsSettings.closeDateFrom
-          : null,
-      closeDateTo:
-        blindSpotsSettings.closeDatePreset === "custom"
-          ? blindSpotsSettings.closeDateTo
-          : null,
-    });
-    queryClient.invalidateQueries({ queryKey: ["blindSpots"] });
-    setBlindSpotsSaved(true);
-    setTimeout(() => setBlindSpotsSaved(false), 2000);
+    setBlindSpotsError(null);
+    try {
+      await saveUserPreference("blindSpotsSettings", {
+        ...blindSpotsSettings,
+        arrThreshold:
+          Number(blindSpotsSettings.arrThreshold) || DEFAULT_ARR_THRESHOLD,
+        closeDateFrom:
+          blindSpotsSettings.closeDatePreset === "custom"
+            ? blindSpotsSettings.closeDateFrom
+            : null,
+        closeDateTo:
+          blindSpotsSettings.closeDatePreset === "custom"
+            ? blindSpotsSettings.closeDateTo
+            : null,
+      });
+      queryClient.invalidateQueries({ queryKey: ["blindSpots"] });
+      setBlindSpotsSaved(true);
+      setTimeout(() => setBlindSpotsSaved(false), 2000);
+    } catch (error) {
+      setBlindSpotsError(
+        error instanceof Error
+          ? error.message
+          : "Failed to save Blind Spots settings",
+      );
+    }
   };
 
   const handleCuriousClick = () => {
@@ -409,6 +438,11 @@ function SettingsPage() {
         )}
       </div>
 
+      {scopeError && (
+        <p className="text-xs text-red-600" role="alert">
+          {scopeError}
+        </p>
+      )}
       <div className="pt-2 flex items-center justify-end gap-3">
         {scopeSaved && (
           <span className="text-xs text-zd-green font-semibold">Saved</span>
@@ -438,177 +472,204 @@ function SettingsPage() {
       </div>
 
       <div className="space-y-3">
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.staleNotesEnabled}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                staleNotesEnabled: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>Notes not updated in</span>
-          <input
-            type="number"
-            min={1}
-            value={punchListSettings.staleNotesDays}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                staleNotesDays: Number(e.target.value) || 1,
-              })
-            }
-            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-          />
-          <span>+ days</span>
-        </label>
+        <div className="space-y-2">
+          <label className="block text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
+            Minimum ARR
+          </label>
+          <div className="flex items-center gap-1 max-w-[200px]">
+            <span className="text-sm text-zd-teal/50">$</span>
+            <input
+              type="number"
+              min={0}
+              value={punchListSettings.minimumArr}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  minimumArr: Number(e.target.value) || 0,
+                })
+              }
+              className="w-full bg-white border border-zd-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+          </div>
+          <p className="text-[11px] text-zd-teal/70">
+            Any opps under this threshold will be kept off your Punch List, even
+            if they meet the criteria below.
+          </p>
+        </div>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.noScNotesEnabled}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                noScNotesEnabled: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>No SE notes</span>
-        </label>
+        <div className="border-t border-zd-border pt-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.staleNotesEnabled}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  staleNotesEnabled: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>Notes not updated in</span>
+            <input
+              type="number"
+              min={1}
+              value={punchListSettings.staleNotesDays}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  staleNotesDays: Number(e.target.value) || 1,
+                })
+              }
+              className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+            <span>+ days</span>
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.noEngagementTypeEnabled}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                noEngagementTypeEnabled: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>No SE engagement type</span>
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.noScNotesEnabled}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  noScNotesEnabled: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>No SE notes</span>
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.staleDScoreEnabled}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                staleDScoreEnabled: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>D-Score not updated in</span>
-          <input
-            type="number"
-            min={1}
-            value={punchListSettings.staleDScoreDays}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                staleDScoreDays: Number(e.target.value) || 1,
-              })
-            }
-            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-          />
-          <span>+ days</span>
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.noEngagementTypeEnabled}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  noEngagementTypeEnabled: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>No SE engagement type</span>
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.dScoreBelowEnabled}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                dScoreBelowEnabled: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>D-Score is below</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={punchListSettings.dScoreBelowThreshold}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                dScoreBelowThreshold: Number(e.target.value) || 0,
-              })
-            }
-            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-          />
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.staleDScoreEnabled}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  staleDScoreEnabled: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>D-Score not updated in</span>
+            <input
+              type="number"
+              min={1}
+              value={punchListSettings.staleDScoreDays}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  staleDScoreDays: Number(e.target.value) || 1,
+                })
+              }
+              className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+            <span>+ days</span>
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.dScoreAboveEnabled}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                dScoreAboveEnabled: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>D-Score is above</span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={punchListSettings.dScoreAboveThreshold}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                dScoreAboveThreshold: Number(e.target.value) || 0,
-              })
-            }
-            className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
-          />
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.dScoreBelowEnabled}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  dScoreBelowEnabled: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>D-Score is below</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={punchListSettings.dScoreBelowThreshold}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  dScoreBelowThreshold: Number(e.target.value) || 0,
+                })
+              }
+              className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.includeHiddenOpps}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                includeHiddenOpps: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>Include hidden opps</span>
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.dScoreAboveEnabled}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  dScoreAboveEnabled: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>D-Score is above</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={punchListSettings.dScoreAboveThreshold}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  dScoreAboveThreshold: Number(e.target.value) || 0,
+                })
+              }
+              className="w-16 bg-white border border-zd-border rounded px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-zd-green focus:border-zd-green"
+            />
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={punchListSettings.includeClosedOpps}
-            onChange={(e) =>
-              setPunchListSettings({
-                ...punchListSettings,
-                includeClosedOpps: e.target.checked,
-              })
-            }
-            className="w-3.5 h-3.5 cursor-pointer"
-          />
-          <span>Show closed opps (Won/Lost)</span>
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.includeHiddenOpps}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  includeHiddenOpps: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>Include hidden opps</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={punchListSettings.includeClosedOpps}
+              onChange={(e) =>
+                setPunchListSettings({
+                  ...punchListSettings,
+                  includeClosedOpps: e.target.checked,
+                })
+              }
+              className="w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>Show closed opps (Won/Lost)</span>
+          </label>
+        </div>
       </div>
 
       <div className="pt-2 flex items-center justify-end gap-3">
@@ -768,6 +829,11 @@ function SettingsPage() {
         )}
       </div>
 
+      {blindSpotsError && (
+        <p className="text-xs text-red-600" role="alert">
+          {blindSpotsError}
+        </p>
+      )}
       <div className="pt-2 flex items-center justify-end gap-3">
         {blindSpotsSaved && (
           <span className="text-xs text-zd-green font-semibold">Saved</span>
@@ -900,6 +966,11 @@ function SettingsPage() {
             </div>
           )}
 
+          {scopeError && (
+            <p className="text-xs text-red-600" role="alert">
+              {scopeError}
+            </p>
+          )}
           <div className="pt-2 flex items-center justify-end gap-3">
             {saved && (
               <span className="text-xs text-zd-green font-semibold">Saved</span>

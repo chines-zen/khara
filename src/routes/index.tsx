@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -24,6 +24,10 @@ import { KpiCard } from "@/components/opportunities/KpiCard";
 import { fetchOpportunities } from "@/lib/api/sc-opportunities";
 import { useIsManager } from "@/hooks/use-is-manager";
 import { sfRecordUrl } from "@/lib/sfdc";
+import {
+  fetchUserPreference,
+  saveUserPreference,
+} from "@/lib/api/user-preferences";
 import {
   Popover,
   PopoverContent,
@@ -229,6 +233,7 @@ function DashboardPage() {
   const [filters, setFilters] = useState<DashboardFilters>(
     DEFAULT_DASHBOARD_FILTERS,
   );
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupByOption>("owner");
   const [groupByOpen, setGroupByOpen] = useState(false);
   const [winRateMode, setWinRateMode] = useState<WinRateMode>("count");
@@ -246,6 +251,36 @@ function DashboardPage() {
     [loaderOpportunities?.opportunities],
   );
   const isManager = useIsManager();
+
+  useEffect(() => {
+    async function loadSavedFilters() {
+      try {
+        const savedFilters =
+          await fetchUserPreference<Partial<DashboardFilters>>(
+            "dashboardFilters",
+          );
+        if (savedFilters) {
+          setFilters({ ...DEFAULT_DASHBOARD_FILTERS, ...savedFilters });
+        }
+      } catch (error) {
+        console.error("Failed to load saved dashboard filters:", error);
+      } finally {
+        setFiltersLoaded(true);
+      }
+    }
+
+    loadSavedFilters();
+  }, []);
+
+  useEffect(() => {
+    if (!filtersLoaded) return;
+
+    const timeoutId = setTimeout(() => {
+      saveUserPreference("dashboardFilters", filters).catch(console.error);
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [filters, filtersLoaded]);
 
   const groupByOptions: GroupByOption[] = isManager
     ? ["nameOfSc", "owner", "stage", "opp"]
@@ -682,7 +717,7 @@ function SortableOppTable({
                       onClick={() => toggleSort(col.key)}
                       className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-zd-dark transition-colors ${
                         active ? "text-zd-dark" : ""
-                      } ${col.align === "right" ? "flex-row-reverse" : ""}`}
+                      }`}
                     >
                       <span>{col.label}</span>
                       <Icon

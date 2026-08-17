@@ -33,7 +33,7 @@ const DIMENSIONS: {
   { title: "IT Alignment", scoreKey: "itAlignment", noteKey: "itAlignment" },
   { title: "Services", scoreKey: "services", noteKey: "services" },
   { title: "Partner", scoreKey: "partner", noteKey: "partner" },
-  { title: "Architecture", scoreKey: "architecture", noteKey: "architecture" },
+  { title: "AI Readiness", scoreKey: "architecture", noteKey: "architecture" },
   { title: "Security", scoreKey: "security", noteKey: "security" },
   { title: "Solution Fit", scoreKey: "solutionFit", noteKey: "solutionFit" },
   { title: "Integration", scoreKey: "integration", noteKey: "integration" },
@@ -77,6 +77,19 @@ function parseScore(value: string | null): {
   const match = String(value).match(/^\s*(\d+)\s*-\s*(.*)$/s);
   if (!match) return { score: null, description: value.trim() || null };
   return { score: match[1], description: match[2].trim() || null };
+}
+
+const AI_READINESS_LABELS: Record<string, string> = {
+  "0": "0 - Customer not open to AI discussions",
+  "1": "1 - AI discussions in progress, compatibility not yet understood",
+  "2": "2 - AI interest high; technical compatibility limiting OR no AI in deal",
+  "3": "3 - AI interest high; technical compatibility high",
+};
+
+function formatAiReadiness(value: string | null): string | null {
+  if (value == null) return null;
+  const match = value.match(/^\s*([0-3])\s*-/);
+  return match ? AI_READINESS_LABELS[match[1]] : value;
 }
 
 // Renders a score value as "X (description)" with the description italic and a
@@ -152,7 +165,13 @@ function ReviewDetail({
                     )}
                   />
                 </span>
-                <ScoreValue value={review.scores[dim.scoreKey]} />
+                <ScoreValue
+                  value={
+                    dim.scoreKey === "architecture"
+                      ? formatAiReadiness(review.scores[dim.scoreKey])
+                      : review.scores[dim.scoreKey]
+                  }
+                />
               </span>
             </td>
             <td className="px-4 py-2 text-zd-dark/80 whitespace-pre-line">
@@ -272,7 +291,7 @@ export function DScoreSection({ oppId }: { oppId: string }) {
                 <tr className="text-left text-[10px] font-bold text-zd-teal/60 uppercase tracking-wider">
                   <th className="px-4 py-2 w-8" />
                   <th className="px-4 py-2">Date</th>
-                  <th className="px-4 py-2 text-right">Summed D-Score</th>
+                  <th className="px-4 py-2 text-right">D-Score</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zd-border">

@@ -1,6 +1,7 @@
 import { type Opportunity } from "@/lib/opportunities";
 
 export type PunchListSettings = {
+  minimumArr: number;
   staleNotesEnabled: boolean;
   staleNotesDays: number;
   staleDScoreEnabled: boolean;
@@ -16,6 +17,7 @@ export type PunchListSettings = {
 };
 
 export const DEFAULT_PUNCH_LIST_SETTINGS: PunchListSettings = {
+  minimumArr: 12000,
   staleNotesEnabled: true,
   staleNotesDays: 14,
   staleDScoreEnabled: true,
@@ -53,6 +55,8 @@ export function buildPunchList(
   if (!settings.includeClosedOpps) {
     scoped = scoped.filter((o) => o.stage !== "Won" && o.stage !== "Lost");
   }
+
+  scoped = scoped.filter((o) => o.amount >= settings.minimumArr);
 
   return scoped
     .map((opp) => {

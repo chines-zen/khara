@@ -52,8 +52,8 @@ import {
   getGongCallsForOpportunity,
   invalidateGongCallsCache,
 } from "./services/gong-calls-cache.js";
-import { syncScopedSnowflakeData } from "./services/snowflake-data-sync.js";
-import { getRecentSyncRuns } from "./services/sync-runs.js";
+import { startScopedSnowflakeDataSync } from "./services/snowflake-data-sync.js";
+import { getRecentSyncRuns, getSyncRunStatus } from "./services/sync-runs.js";
 import {
   resolveScUserId,
   resolveOnboardingUsers,
@@ -729,11 +729,8 @@ app.delete(
   },
 );
 
-// POST /api/data-sync - Refresh all scoped Snowflake domains as one completed
-// run. The response is sent only after Opportunities, Blind Spots, Activities,
-// D-Score reviews, and Gong calls have all been mirrored locally. The UI refetches its
-// normal cache-backed reads only after this response, avoiding the former state
-// where fresh opportunities could be shown beside day-old detail data.
+// POST /api/data-sync - Start a scoped Snowflake refresh and return its durable
+// run ID. The client polls the run status while the domains execute.
 app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
   try {
     if (!databaseConnected) {
@@ -762,7 +759,7 @@ app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
       });
     }
 
-    const result = await syncScopedSnowflakeData({
+    const job = await startScopedSnowflakeDataSync({
       userId: req.user.id,
       userEmail: req.user.email,
       scope,
@@ -774,13 +771,27 @@ app.post("/api/data-sync", authenticateWithPomerium, async (req, res) => {
       blindSpotsScope,
     });
 
-    res.json({ success: true, ...result });
+    // The job owns its error handling and persists the terminal failure state.
+    // Attach a sink here because this request intentionally does not await it.
+    job.promise.catch(() => {});
+    res.json({ success: true, runId: job.runId });
   } catch (error) {
     console.error("Error running unified Snowflake data sync:", error);
     res.status(500).json({
       error: "Failed to synchronize Snowflake data",
       details: error.message,
     });
+  }
+});
+
+app.get("/api/data-sync/:runId", authenticateWithPomerium, async (req, res) => {
+  try {
+    const run = await getSyncRunStatus(req.user.id, req.params.runId);
+    if (!run) return res.status(404).json({ error: "Sync run not found" });
+    res.json({ run });
+  } catch (error) {
+    console.error("Error fetching sync run status:", error);
+    res.status(500).json({ error: "Failed to fetch sync run status" });
   }
 });
 

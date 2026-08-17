@@ -28,25 +28,20 @@ const inFlightSyncs = new Map();
  * @param {{ userId: number, userEmail: string, scope: object, activityScope: object, blindSpotsScope: object }} options
  */
 export function syncScopedSnowflakeData(options) {
-  const existing = inFlightSyncs.get(options.userId);
-  if (existing) return existing;
-
-  const run = performSync(options).finally(() => {
-    if (inFlightSyncs.get(options.userId) === run) {
-      inFlightSyncs.delete(options.userId);
-    }
-  });
-  inFlightSyncs.set(options.userId, run);
-  return run;
+  return startScopedSnowflakeDataSync(options).then(({ promise }) => promise);
 }
 
-async function performSync({
+/** Start a sync and return its durable run ID immediately. */
+export async function startScopedSnowflakeDataSync({
   userId,
   userEmail,
   scope,
   activityScope,
   blindSpotsScope,
 }) {
+  const existing = inFlightSyncs.get(userId);
+  if (existing) return existing;
+
   const runId = await startSyncRun(userId, {
     arrThreshold: scope.arrThreshold ?? null,
     closeDatePreset: scope.closeDatePreset ?? null,
@@ -54,19 +49,26 @@ async function performSync({
     closeDateTo: scope.closeDateTo ?? null,
     scEmails: Array.isArray(scope.scEmails) ? scope.scEmails : [],
   });
-  try {
-    return await performSyncRun({
-      userId,
-      userEmail,
-      scope,
-      activityScope,
-      blindSpotsScope,
-      runId,
+  const promise = performSyncRun({
+    userId,
+    userEmail,
+    scope,
+    activityScope,
+    blindSpotsScope,
+    runId,
+  })
+    .catch(async (error) => {
+      await finishSyncRun(runId, error.message);
+      throw error;
+    })
+    .finally(() => {
+      const current = inFlightSyncs.get(userId);
+      if (current?.runId === runId) inFlightSyncs.delete(userId);
     });
-  } catch (error) {
-    await finishSyncRun(runId, error.message);
-    throw error;
-  }
+
+  const job = { runId, promise };
+  inFlightSyncs.set(userId, job);
+  return job;
 }
 
 async function performSyncRun({
